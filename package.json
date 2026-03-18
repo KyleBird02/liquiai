@@ -1,0 +1,23 @@
+{
+  "name": "liquiai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Liquibase Migration Tool - PoC",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=server & npm run dev --workspace=client",
+    "build": "npm run build --workspace=server && npm run build --workspace=client",
+    "start": "npm run start --workspace=server"
+  },
+  "keywords": [
+    "liquibase",
+    "database",
+    "migrations",
+    "postgresql"
+  ],
+  "author": "",
+  "license": "MIT"
+}

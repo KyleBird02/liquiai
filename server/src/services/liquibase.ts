@@ -1,0 +1,266 @@
+import {
+  ProposedChange,
+  CreateTablePayload,
+  AlterTablePayload,
+  DropTablePayload,
+  ColumnDefinition,
+} from "../types/index";
+import { Builder } from "xml2js";
+
+class LiquibaseGenerator {
+  private author: string;
+
+  constructor(author: string = "liquiai") {
+    this.author = author;
+  }
+
+  /**
+   * Generates a Liquibase changeset XML from a proposed change
+   */
+  generateChangeset(
+    change: ProposedChange,
+    changesetId: string = change.id,
+  ): string {
+    let changeXml: any;
+
+    switch (change.type) {
+      case "CREATE_TABLE":
+        changeXml = this.generateCreateTable(
+          change.payload as CreateTablePayload,
+        );
+        break;
+      case "ALTER_TABLE":
+        changeXml = this.generateAlterTable(
+          change.payload as AlterTablePayload,
+        );
+        break;
+      case "DROP_TABLE":
+        changeXml = this.generateDropTable(change.payload as DropTablePayload);
+        break;
+      default:
+        throw new Error(`Unsupported change type: ${change.type}`);
+    }
+
+    // Wrap in databaseChangeLog structure
+    const databaseChangeLog = {
+      databaseChangeLog: {
+        $: {
+          xmlns: "http://www.liquibase.org/xml/ns/dbchangelog",
+          "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+          "xsi:schemaLocation":
+            "http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd",
+        },
+        changeSet: {
+          $: {
+            id: changesetId,
+            author: this.author,
+          },
+          [Object.keys(changeXml)[0]]: changeXml[Object.keys(changeXml)[0]],
+        },
+      },
+    };
+
+    const builder = new Builder({
+      rootName: "databaseChangeLog",
+      xmldec: { version: "1.0", encoding: "UTF-8" },
+    });
+
+    return builder.buildObject(databaseChangeLog.databaseChangeLog);
+  }
+
+  private generateCreateTable(payload: CreateTablePayload): any {
+    const { tableName, schema, columns, primaryKey, foreignKeys } = payload;
+
+    const columnElements = columns.map((col) => this.columnToXml(col));
+
+    const constraints = [];
+
+    if (primaryKey && primaryKey.length > 0) {
+      constraints.push({
+        primaryKey: {
+          $: {
+            columnNames: primaryKey.join(","),
+          },
+        },
+      });
+    }
+
+    if (foreignKeys && foreignKeys.length > 0) {
+      foreignKeys.forEach((fk) => {
+        constraints.push({
+          foreignKeyConstraint: {
+            $: {
+              constraintName: fk.constraintName,
+              baseColumnNames: fk.column,
+              baseTableName: tableName,
+              referencedTableName: fk.referencedTable,
+              referencedColumnNames: fk.referencedColumn,
+              onDelete: fk.onDelete,
+            },
+          },
+        });
+      });
+    }
+
+    return {
+      createTable: {
+        $: {
+          tableName,
+          schemaName: schema || undefined,
+        },
+        column: columnElements,
+        ...Object.assign({}, ...constraints),
+      },
+    };
+  }
+
+  private generateAlterTable(payload: AlterTablePayload): any {
+    const {
+      tableName,
+      schema,
+      addedColumns = [],
+      removedColumns = [],
+    } = payload;
+
+    const changes: any[] = [];
+
+    // Add new columns
+    addedColumns.forEach((col) => {
+      changes.push({
+        addColumn: {
+          $: {
+            tableName,
+            schemaName: schema,
+          },
+          column: [this.columnToXml(col)],
+        },
+      });
+    });
+
+    // Drop columns
+    removedColumns.forEach((colName) => {
+      changes.push({
+        dropColumn: {
+          $: {
+            tableName,
+            schemaName: schema,
+            columnName: colName,
+          },
+        },
+      });
+    });
+
+    if (changes.length === 0) {
+      throw new Error("No changes specified for ALTER TABLE");
+    }
+
+    // If there's only one change, return it directly; otherwise wrap in a nested structure
+    return changes.length === 1 ? changes[0] : { sql: "No changes" };
+  }
+
+  private generateDropTable(payload: DropTablePayload): any {
+    const { tableName, schema } = payload;
+
+    return {
+      dropTable: {
+        $: {
+          tableName,
+          schemaName: schema,
+        },
+      },
+    };
+  }
+
+  private columnToXml(col: ColumnDefinition): any {
+    const columnAttrs: any = {
+      name: col.name,
+      type: col.type,
+      remarks: undefined,
+    };
+
+    if (!col.nullable) {
+      columnAttrs.constraints = {
+        $: {
+          nullable: "false",
+        },
+      };
+    }
+
+    if (col.defaultValue) {
+      columnAttrs.defaultValue = col.defaultValue;
+    }
+
+    return {
+      $: columnAttrs,
+    };
+  }
+
+  /**
+   * Generates SQL from a Liquibase changeset (for preview/debugging)
+   */
+  generateSQL(change: ProposedChange): string {
+    const lines: string[] = ["-- Generated by Liquibase Migration Tool", ""];
+
+    switch (change.type) {
+      case "CREATE_TABLE": {
+        const payload = change.payload as CreateTablePayload;
+        const { tableName, schema, columns, primaryKey } = payload;
+
+        const tableFqn = schema ? `${schema}.${tableName}` : tableName;
+        const cols = columns
+          .map((col) => {
+            let def = `${col.name} ${col.type}`;
+            if (!col.nullable) def += " NOT NULL";
+            if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+            return def;
+          })
+          .join(",\n  ");
+
+        let sql = `CREATE TABLE ${tableFqn} (\n  ${cols}`;
+        if (primaryKey && primaryKey.length > 0) {
+          sql += `,\n  PRIMARY KEY (${primaryKey.join(", ")})`;
+        }
+        sql += "\n);";
+        lines.push(sql);
+        break;
+      }
+
+      case "DROP_TABLE": {
+        const payload = change.payload as DropTablePayload;
+        const { tableName, schema } = payload;
+        const tableFqn = schema ? `${schema}.${tableName}` : tableName;
+        lines.push(`DROP TABLE ${tableFqn};`);
+        break;
+      }
+
+      case "ALTER_TABLE": {
+        const payload = change.payload as AlterTablePayload;
+        const {
+          tableName,
+          schema,
+          addedColumns = [],
+          removedColumns = [],
+        } = payload;
+        const tableFqn = schema ? `${schema}.${tableName}` : tableName;
+
+        addedColumns.forEach((col) => {
+          let def = `${col.name} ${col.type}`;
+          if (!col.nullable) def += " NOT NULL";
+          if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+          lines.push(`ALTER TABLE ${tableFqn} ADD COLUMN ${def};`);
+        });
+
+        removedColumns.forEach((colName) => {
+          lines.push(`ALTER TABLE ${tableFqn} DROP COLUMN ${colName};`);
+        });
+        break;
+      }
+    }
+
+    return lines.join("\n");
+  }
+}
+
+export const liquibaseGenerator = new LiquibaseGenerator(
+  process.env.LIQUIBASE_CHANGESET_AUTHOR || "liquiai",
+);
