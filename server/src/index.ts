@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import schemaRoutes from "./routes/schema.js";
 import changesRoutes from "./routes/changes.js";
 import liquibaseRoutes from "./routes/liquibase.js";
+import githubRoutes from "./routes/github.js";
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.get("/api/health", (req, res) => {
 app.use("/api/schema", schemaRoutes);
 app.use("/api/changes", changesRoutes);
 app.use("/api/liquibase", liquibaseRoutes);
+app.use("/api/github", githubRoutes);
 
 // 404 handler
 app.use((req, res) => {

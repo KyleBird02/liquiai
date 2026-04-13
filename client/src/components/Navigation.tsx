@@ -1,6 +1,12 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Database, LayoutTemplate, Layers, GitCommit } from "lucide-react";
+import {
+  Database,
+  LayoutTemplate,
+  Layers,
+  GitCommit,
+  FileJson,
+} from "lucide-react";
 
 export const Navigation: React.FC = () => {
   const location = useLocation();
@@ -8,6 +14,7 @@ export const Navigation: React.FC = () => {
   const navItems = [
     { name: "Schema", path: "/schema", icon: LayoutTemplate },
     { name: "Changes", path: "/changes", icon: GitCommit },
+    { name: "Phase 2: Liquibase", path: "/phase2/setup", icon: FileJson },
   ];
 
   return (
@@ -22,7 +29,9 @@ export const Navigation: React.FC = () => {
             <nav className="ml-6 flex items-center space-x-4">
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = location.pathname === item.path;
+                const isActive = location.pathname.startsWith(
+                  item.path === "/phase2/setup" ? "/phase2" : item.path,
+                );
                 return (
                   <Link
                     key={item.name}

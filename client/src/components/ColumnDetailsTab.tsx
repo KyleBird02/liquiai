@@ -25,6 +25,7 @@ interface ColumnDetailsTabProps {
 }
 
 interface EditingColumn {
+  originalName: string;
   name: string;
   type: string;
   nullable: boolean;
@@ -57,6 +58,7 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
 
   const startEdit = (column: ColumnDefinition) => {
     setEditingColumn({
+      originalName: column.name,
       name: column.name,
       type: column.type,
       nullable: column.nullable,
@@ -101,6 +103,16 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
         </div>
       )}
 
+      {canEdit && (
+        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-800">
+            <span className="font-semibold">✓ Edit Mode Enabled</span> — Click
+            the edit icon (pencil) on any row to modify column names, types,
+            nullability, and default values.
+          </p>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
@@ -134,12 +146,16 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
           <tbody>
             {table.columns.map((column, index) => {
               const isExpanded = expandedRows.has(column.name);
-              const isEditing = editingColumn?.name === column.name;
+              const isEditing = editingColumn?.originalName === column.name;
 
               return (
                 <React.Fragment key={column.name}>
                   {/* Main Row */}
-                  <tr className="border-b border-gray-200 hover:bg-gray-50 transition">
+                  <tr
+                    className={`border-b border-gray-200 transition ${
+                      isEditing ? "bg-indigo-50" : "hover:bg-gray-50"
+                    }`}
+                  >
                     <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => toggleRow(column.name)}

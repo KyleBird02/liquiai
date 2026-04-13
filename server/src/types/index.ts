@@ -169,3 +169,52 @@ export interface SchemaDiff {
   isDestructive: boolean;
   destructiveReasons: string[];
 }
+
+// Phase 2 - Liquibase Changeset Generation
+
+export interface ChangesetDefinition {
+  id: string; // e.g. "trade-124"
+  author: string;
+  comment: string | null;
+  changeType: "xml" | "sql"; // inline XML or SQL file reference
+  change: ProposedChange;
+  sqlFilePath: string | null; // relative path if changeType === 'sql'
+  sqlFileContent: string | null; // generated SQL if changeType === 'sql'
+  xmlContent: string; // the full rendered changeset XML block
+  targetApplication: string; // folder name e.g. "trade-service"
+  targetSprint: string; // sprint folder e.g. "sprint-42"
+  edited: boolean; // true if user manually edited XML/SQL
+}
+
+export interface ChangesetBatch {
+  changesets: ChangesetDefinition[];
+  aggregated: boolean; // true if merged into one changeset
+  author: string;
+  targetApplication: string;
+  targetSprint: string;
+  prTitle: string;
+  prDescription: string;
+}
+
+export interface Phase2Session {
+  author: string; // GitHub username
+  targetApplication: string; // e.g. "trade-service"
+  targetSprint: string; // e.g. "sprint-42"
+  branchName?: string; // e.g. "OCDEV-admin-feature"
+  proposedChanges: ProposedChange[]; // from Phase 1
+  changesets: ChangesetDefinition[];
+  batch?: ChangesetBatch;
+}
+
+export interface GitHubPRInput {
+  branch: string; // e.g. "migration/trade-service/sprint-42/add-settlement-columns"
+  title: string;
+  description: string;
+  files: GitHubFileChange[]; // changeset.xml + any .sql files
+}
+
+export interface GitHubFileChange {
+  path: string; // relative path in repo
+  content: string;
+  message: string; // commit message for this file
+}

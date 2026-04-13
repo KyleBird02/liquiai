@@ -166,3 +166,52 @@ export interface DropTablePayload {
   schema: string;
   cascade?: boolean;
 }
+
+// Phase 2 - Liquibase Changeset Generation
+
+export interface ChangesetDefinition {
+  id: string;
+  author: string;
+  comment: string | null;
+  changeType: "xml" | "sql";
+  change: ProposedChange;
+  sqlFilePath: string | null;
+  sqlFileContent: string | null;
+  xmlContent: string;
+  targetApplication: string;
+  targetSprint: string;
+  edited: boolean;
+}
+
+export interface ChangesetBatch {
+  changesets: ChangesetDefinition[];
+  aggregated: boolean;
+  author: string;
+  targetApplication: string;
+  targetSprint: string;
+  prTitle: string;
+  prDescription: string;
+}
+
+export interface Phase2Session {
+  author: string;
+  targetApplication: string;
+  targetSprint: string;
+  branchName?: string;
+  proposedChanges: ProposedChange[];
+  changesets: ChangesetDefinition[];
+  batch?: ChangesetBatch;
+}
+
+export interface GitHubPRInput {
+  branch: string;
+  title: string;
+  description: string;
+  files: GitHubFileChange[];
+}
+
+export interface GitHubFileChange {
+  path: string;
+  content: string;
+  message: string;
+}

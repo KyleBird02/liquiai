@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useProposedChanges } from "@/hooks/index";
 import { liquibaseAPI, schemaAPI } from "@/api/index";
 import { ProposedChange, ValidationError } from "@/types/index";
-import { Loader2 } from "lucide-react";
+import { Loader2, Trash2, Copy } from "lucide-react";
 
 interface DBConfig {
   dev: string;
@@ -10,10 +10,11 @@ interface DBConfig {
 }
 
 export const ChangesPage: React.FC = () => {
-  const { changes, loading, error, list, apply } = useProposedChanges();
+  const { changes, loading, error, list, apply, remove } = useProposedChanges();
   const [xmlResult, setXmlResult] = useState<string | null>(null);
   const [config, setConfig] = useState<DBConfig | null>(null);
   const [applying, setApplying] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -61,6 +62,29 @@ export const ChangesPage: React.FC = () => {
       );
     } finally {
       setApplying(false);
+    }
+  };
+
+  const handleDelete = async (changeId: string) => {
+    if (!window.confirm("Are you sure you want to delete this change?")) {
+      return;
+    }
+
+    setDeleting(changeId);
+    try {
+      const result = await remove(changeId);
+      if (result) {
+        alert("Change deleted successfully");
+        list(); // Refresh the list
+      } else {
+        setApplyError("Failed to delete change");
+      }
+    } catch (err) {
+      setApplyError(
+        err instanceof Error ? err.message : "Failed to delete change",
+      );
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -142,20 +166,30 @@ export const ChangesPage: React.FC = () => {
                 <div className="mt-6 flex space-x-3 border-t pt-4">
                   <button
                     onClick={() => handleGenerateXml(change)}
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                    className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition"
                   >
+                    <Copy className="w-4 h-4" />
                     Generate Liquibase XML
                   </button>
                   <button
                     onClick={() => handleApply(change.id)}
                     disabled={change.status !== "validated" || applying}
-                    className={`inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white ${
+                    className={`inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white transition ${
                       change.status === "validated" && !applying
                         ? "bg-indigo-600 hover:bg-indigo-700"
                         : "bg-gray-400 cursor-not-allowed"
                     }`}
                   >
                     {applying ? "Applying..." : "Apply to Database"}
+                  </button>
+                  <button
+                    onClick={() => handleDelete(change.id)}
+                    disabled={deleting === change.id}
+                    className="inline-flex items-center gap-2 px-4 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 transition disabled:opacity-50"
+                    title="Delete this proposed change"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deleting === change.id ? "Deleting..." : "Delete"}
                   </button>
                 </div>
               </div>

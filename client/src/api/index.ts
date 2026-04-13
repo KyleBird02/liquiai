@@ -310,6 +310,173 @@ export const liquibaseAPI = {
       return handleError(error as AxiosError);
     }
   },
+
+  // Phase 2 - Liquibase Changeset Management
+
+  /**
+   * Initialize Phase 2 session with user inputs
+   */
+  async initSession(
+    author: string,
+    targetApplication: string,
+    targetSprint: string,
+    branchName?: string,
+  ) {
+    try {
+      const response = await apiClient.post("/liquibase/init", {
+        author,
+        targetApplication,
+        targetSprint,
+        branchName,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get current Phase 2 session
+   */
+  async getSession() {
+    try {
+      const response = await apiClient.get("/liquibase/session");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Add proposed changes to session
+   */
+  async addProposedChanges(changes: ProposedChange[]) {
+    try {
+      const response = await apiClient.post("/liquibase/add-proposed-changes", {
+        changes,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get the last changeset ID from GitHub
+   */
+  async getLastChangesetId() {
+    try {
+      const response = await apiClient.get("/liquibase/last-changeset-id");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Generate batch of changesets from all proposed changes
+   */
+  async generateBatch(startId: string) {
+    try {
+      const response = await apiClient.post("/liquibase/generate-batch", {
+        startId,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Update a specific changeset
+   */
+  async updateChangeset(
+    changesetId: string,
+    updates: {
+      xmlContent?: string;
+      sqlFileContent?: string;
+      comment?: string | null;
+      changeType?: "xml" | "sql";
+    },
+  ) {
+    try {
+      const response = await apiClient.put(
+        `/liquibase/changeset/${changesetId}`,
+        updates,
+      );
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Aggregate all changesets into one
+   */
+  async aggregateChangesets(aggregatedId: string) {
+    try {
+      const response = await apiClient.post("/liquibase/aggregate", {
+        aggregatedId,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Clear current session
+   */
+  async clearSession() {
+    try {
+      const response = await apiClient.post("/liquibase/clear-session");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+};
+
+// GitHub endpoints (Phase 2)
+export const githubAPI = {
+  /**
+   * Preview all files that would be committed
+   */
+  async previewFiles() {
+    try {
+      const response = await apiClient.get("/github/preview");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Create a GitHub PR with all changesets
+   */
+  async createPR(prTitle: string, prDescription: string) {
+    try {
+      const response = await apiClient.post("/github/create-pr", {
+        prTitle,
+        prDescription,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get GitHub API rate limit status
+   */
+  async getRateLimit() {
+    try {
+      const response = await apiClient.get("/github/rate-limit");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
 };
 
 // Health check
@@ -326,5 +493,6 @@ export default {
   schema: schemaAPI,
   changes: changesAPI,
   liquibase: liquibaseAPI,
+  github: githubAPI,
   healthCheck,
 };
