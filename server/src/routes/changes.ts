@@ -34,6 +34,7 @@ router.post("/propose", (req: Request, res: Response) => {
       status: "pending",
       payload,
       createdAt: new Date().toISOString(),
+      appliedLocally: false,
     };
 
     // Validate the change
@@ -196,7 +197,7 @@ router.post("/:id/apply", async (req: Request, res: Response) => {
     }
 
     // Mark change as applied
-    change.status = "validated";
+    change.appliedLocally = true;
 
     return res.json({
       success: true,
@@ -207,6 +208,83 @@ router.post("/:id/apply", async (req: Request, res: Response) => {
     console.error("Apply error:", error);
     return res.status(500).json({
       error: error.message || "Failed to apply change",
+    });
+  }
+});
+
+/**
+ * POST /api/changes/:id/revert
+ * Undo an applied change entirely
+ */
+router.post("/:id/revert", async (req: Request, res: Response) => {
+  try {
+    const change = proposedChanges.get(req.params.id);
+
+    if (!change) {
+      return res
+        .status(404)
+        .json({ error: `Change ${req.params.id} not found` });
+    }
+
+    if (!change.appliedLocally) {
+      return res.status(400).json({
+        error:
+          "Cannot revert a change that hasn't been applied yet. If you want to discard it, delete it instead.",
+      });
+    }
+
+    const connectionString =
+      req.body.connectionString || process.env.LOCAL_DB_CONNECTION_STRING;
+    if (!connectionString) {
+      return res
+        .status(400)
+        .json({ error: "No connection string available to revert change" });
+    }
+
+    let revertResult: any;
+
+    if (change.type === "CREATE_TABLE") {
+      const payload = change.payload as any;
+      // Inverse of CREATE is DROP
+      revertResult = await migrationService.applyDropTable(
+        { tableName: payload.tableName, schema: payload.schema },
+        connectionString,
+      );
+    } else if (change.type === "ALTER_TABLE") {
+      const payload = change.payload as any;
+      revertResult = await migrationService.revertAlterTable(
+        payload,
+        connectionString,
+      );
+    } else if (change.type === "DROP_TABLE") {
+      return res
+        .status(501)
+        .json({ error: `Reverting a DROP TABLE is not supported directly.` });
+    } else {
+      return res
+        .status(501)
+        .json({ error: `Reverting ${change.type} is not yet implemented` });
+    }
+
+    if (!revertResult.success) {
+      return res.status(500).json({
+        error: "Failed to revert change",
+        details: revertResult.error,
+      });
+    }
+
+    // Unmark as applied
+    change.appliedLocally = false;
+
+    return res.json({
+      success: true,
+      message: revertResult.message,
+      change,
+    });
+  } catch (error: any) {
+    console.error("Revert error:", error);
+    return res.status(500).json({
+      error: error.message || "Failed to revert change",
     });
   }
 });

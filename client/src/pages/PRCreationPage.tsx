@@ -1,17 +1,58 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { githubAPI } from "@/api";
+import { githubAPI, liquibaseAPI } from "@/api";
+import { ChangesetDefinition } from "@/types";
+import { Loader2, Sparkles } from "lucide-react";
 
 const PRCreationPage: React.FC = () => {
   const navigate = useNavigate();
+  const [changesets, setChangesets] = useState<ChangesetDefinition[]>([]);
   const [formData, setFormData] = useState({
     prTitle: "",
     prDescription: "",
   });
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [prResult, setPrResult] = useState<any>(null);
+
+  useEffect(() => {
+    loadChangesets();
+  }, []);
+
+  const loadChangesets = async () => {
+    try {
+      const result = await liquibaseAPI.listChangesets();
+      if (result && !result.error) {
+        setChangesets(result.changesets || []);
+      }
+    } catch (err) {
+      console.error("Failed to load changesets", err);
+    }
+  };
+
+  const handleGenerateContent = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const result = await githubAPI.generatePRText();
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      setFormData({
+        prTitle: result.title || "",
+        prDescription: result.description || "",
+      });
+    } catch (err: any) {
+      setError(
+        "Failed to generate PR content: " + (err.message || "Unknown error"),
+      );
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -113,7 +154,7 @@ const PRCreationPage: React.FC = () => {
               </a>
 
               <button
-                onClick={() => navigate("/phase2/setup")}
+                onClick={() => navigate("/liquibase/setup")}
                 className="block w-full bg-gray-300 text-gray-800 py-3 px-4 rounded-md hover:bg-gray-400 font-medium"
               >
                 Start New Migration
@@ -146,6 +187,22 @@ const PRCreationPage: React.FC = () => {
           onSubmit={handleSubmit}
           className="bg-white rounded-lg shadow-md p-8 space-y-6"
         >
+          <div className="flex justify-end mb-2">
+            <button
+              type="button"
+              onClick={handleGenerateContent}
+              disabled={generating || changesets.length === 0}
+              className="flex items-center space-x-2 text-sm text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-md disabled:opacity-50"
+            >
+              {generating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              <span>{generating ? "Generating..." : "Auto-fill with AI"}</span>
+            </button>
+          </div>
+
           <div>
             <label
               htmlFor="prTitle"
@@ -175,6 +232,9 @@ const PRCreationPage: React.FC = () => {
             >
               PR Description
             </label>
+            <p className="text-xs text-blue-600 mb-2">
+              ✓ Auto-generated from changesets — edit freely
+            </p>
             <textarea
               id="prDescription"
               name="prDescription"
@@ -193,7 +253,7 @@ const PRCreationPage: React.FC = () => {
           <div className="flex gap-4">
             <button
               type="button"
-              onClick={() => navigate("/phase2/preview")}
+              onClick={() => navigate("/liquibase/preview")}
               className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-400 font-medium"
             >
               Back to Preview

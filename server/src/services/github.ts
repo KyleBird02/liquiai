@@ -32,7 +32,63 @@ class GitHubService {
   }
 
   /**
+   * Get applications (root directories containing a changeset.xml)
+   */
+  async getApplications(): Promise<string[]> {
+    try {
+      const response = await this.octokit.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path: "",
+      });
+
+      if (!Array.isArray(response.data)) {
+        return [];
+      }
+
+      // Filter only directories, and ideally only those that have a changeset.xml
+      // For speed, just return directories except .github, etc.
+      const directories = response.data
+        .filter((item) => item.type === "dir" && !item.name.startsWith("."))
+        .map((item) => item.name);
+
+      return directories;
+    } catch (error: any) {
+      console.error("Failed to fetch applications:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get sprints (subdirectories within an application)
+   */
+  async getSprints(application: string): Promise<string[]> {
+    try {
+      const response = await this.octokit.repos.getContent({
+        owner: this.owner,
+        repo: this.repo,
+        path: application,
+      });
+
+      if (!Array.isArray(response.data)) {
+        return [];
+      }
+
+      // Return directories that start with "sprint" or similar
+      const directories = response.data
+        .filter((item) => item.type === "dir")
+        .map((item) => item.name);
+
+      return directories;
+    } catch (error: any) {
+      console.error(`Failed to fetch sprints for ${application}:`, error);
+      return [];
+    }
+  }
+
+  /**
    * Fetch changeset.xml from GitHub for a specific application
+
    * Returns the XML content as a string
    */
   async fetchChangesetXml(

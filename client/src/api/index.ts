@@ -199,6 +199,22 @@ export const changesAPI = {
     }
   },
 
+  async revertChange(changeId: string, connectionString?: string) {
+    try {
+      const body: any = {};
+      if (connectionString) {
+        body.connectionString = connectionString;
+      }
+      const response = await apiClient.post(
+        `/changes/${changeId}/revert`,
+        body,
+      );
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
   /**
    * Apply a validated change to database
    */
@@ -277,6 +293,43 @@ export const liquibaseAPI = {
       const response = await apiClient.get(
         `/liquibase/changesets/${changesetId}`,
       );
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Update a specific changeset (comment, changeType, xmlContent, sqlFileContent)
+   */
+  async updateChangeset(
+    changesetId: string,
+    updates: {
+      comment?: string | null;
+      changeType?: "xml" | "sql";
+      xmlContent?: string;
+      sqlFileContent?: string | null;
+    },
+  ) {
+    try {
+      const response = await apiClient.put(
+        `/liquibase/changeset/${changesetId}`,
+        updates,
+      );
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Aggregate changesets into a single file
+   */
+  async aggregateChangesets(aggregatedId: string) {
+    try {
+      const response = await apiClient.post("/liquibase/aggregate", {
+        aggregatedId,
+      });
       return response.data;
     } catch (error) {
       return handleError(error as AxiosError);
@@ -388,43 +441,6 @@ export const liquibaseAPI = {
   },
 
   /**
-   * Update a specific changeset
-   */
-  async updateChangeset(
-    changesetId: string,
-    updates: {
-      xmlContent?: string;
-      sqlFileContent?: string;
-      comment?: string | null;
-      changeType?: "xml" | "sql";
-    },
-  ) {
-    try {
-      const response = await apiClient.put(
-        `/liquibase/changeset/${changesetId}`,
-        updates,
-      );
-      return response.data;
-    } catch (error) {
-      return handleError(error as AxiosError);
-    }
-  },
-
-  /**
-   * Aggregate all changesets into one
-   */
-  async aggregateChangesets(aggregatedId: string) {
-    try {
-      const response = await apiClient.post("/liquibase/aggregate", {
-        aggregatedId,
-      });
-      return response.data;
-    } catch (error) {
-      return handleError(error as AxiosError);
-    }
-  },
-
-  /**
    * Clear current session
    */
   async clearSession() {
@@ -467,6 +483,18 @@ export const githubAPI = {
   },
 
   /**
+   * Generate simple PR title and description using LLM
+   */
+  async generatePRText() {
+    try {
+      const response = await apiClient.get("/github/generate-pr-text");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
    * Get GitHub API rate limit status
    */
   async getRateLimit() {
@@ -475,6 +503,32 @@ export const githubAPI = {
       return response.data;
     } catch (error) {
       return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get application root directories
+   */
+  async getApplications() {
+    try {
+      const response = await apiClient.get("/github/applications");
+      return response.data.applications || [];
+    } catch (error) {
+      return [];
+    }
+  },
+
+  /**
+   * Get sprint directories
+   */
+  async getSprints(application: string) {
+    try {
+      const response = await apiClient.get(
+        `/github/sprints?application=${application}`,
+      );
+      return response.data.sprints || [];
+    } catch (error) {
+      return [];
     }
   },
 };

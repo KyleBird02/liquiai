@@ -13,6 +13,8 @@ import {
   Key,
   Link,
   AlertCircle,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 interface ColumnDetailsTabProps {
@@ -22,6 +24,8 @@ interface ColumnDetailsTabProps {
     columnName: string,
     updates: Partial<ColumnDefinition>,
   ) => Promise<void>;
+  onAddColumn?: () => Promise<void>;
+  onDeleteColumn?: (columnName: string) => Promise<void>;
 }
 
 interface EditingColumn {
@@ -36,15 +40,20 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
   table,
   selectedEnv,
   onUpdateColumn,
+  onAddColumn,
+  onDeleteColumn,
 }) => {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [editingColumn, setEditingColumn] = useState<EditingColumn | null>(
     null,
   );
   const [updatingColumn, setUpdatingColumn] = useState<string | null>(null);
+  const [deletingColumn, setDeletingColumn] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const canEdit = selectedEnv === "local" && onUpdateColumn;
+  const canEdit =
+    selectedEnv === "local" &&
+    (onUpdateColumn || onAddColumn || onDeleteColumn);
 
   const toggleRow = (columnName: string) => {
     const newExpanded = new Set(expandedRows);
@@ -69,6 +78,28 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
   const cancelEdit = () => {
     setEditingColumn(null);
     setError(null);
+  };
+
+  const handleDeleteColumn = async (columnName: string) => {
+    if (!onDeleteColumn) return;
+    setDeletingColumn(columnName);
+    try {
+      await onDeleteColumn(columnName);
+      setEditingColumn(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete column");
+    } finally {
+      setDeletingColumn(null);
+    }
+  };
+
+  const handleAddColumn = async () => {
+    if (!onAddColumn) return;
+    try {
+      await onAddColumn();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add column");
+    }
   };
 
   const saveEdit = async (originalName: string) => {
@@ -103,15 +134,18 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
         </div>
       )}
 
-      {canEdit && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
-            <span className="font-semibold">✓ Edit Mode Enabled</span> — Click
-            the edit icon (pencil) on any row to modify column names, types,
-            nullability, and default values.
-          </p>
-        </div>
-      )}
+      <div className="flex justify-between items-center mb-4">
+        {canEdit && (
+          <button
+            onClick={handleAddColumn}
+            className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition text-sm font-medium"
+            title="Add new column to table"
+          >
+            <Plus size={16} />
+            Add Column
+          </button>
+        )}
+      </div>
 
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
@@ -192,6 +226,21 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
                         ) : (
                           <span className="font-mono text-sm">
                             {column.name}
+                            {column._isProposed && (
+                              <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-green-100 text-green-800 rounded uppercase font-bold tracking-wider">
+                                New
+                              </span>
+                            )}
+                            {column._isProposedEdit && (
+                              <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-yellow-100 text-yellow-800 rounded uppercase font-bold tracking-wider">
+                                Edited
+                              </span>
+                            )}
+                            {column._isPendingDelete && (
+                              <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-red-100 text-red-800 rounded uppercase font-bold tracking-wider">
+                                Pending Drop
+                              </span>
+                            )}
                           </span>
                         )}
                       </div>
@@ -279,8 +328,16 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
                               <Save className="w-4 h-4" />
                             </button>
                             <button
+                              onClick={() => handleDeleteColumn(column.name)}
+                              disabled={deletingColumn === column.name}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                              title="Delete column"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={cancelEdit}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded"
+                              className="p-1 text-gray-600 hover:bg-gray-100 rounded"
                               title="Cancel editing"
                             >
                               <X className="w-4 h-4" />

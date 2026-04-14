@@ -159,7 +159,7 @@ router.post("/generate-batch", async (req: Request, res: Response) => {
     let currentNumber = parseInt(match[2], 10);
 
     // Generate changesets
-    const changesets: ChangesetDefinition[] = [];
+    let changesets: ChangesetDefinition[] = [];
 
     for (const change of session.proposedChanges) {
       const nextId = `${appPrefix}-${currentNumber}`;
@@ -176,6 +176,9 @@ router.post("/generate-batch", async (req: Request, res: Response) => {
 
       changesets.push(changeset);
     }
+
+    // Add LLM reviews on top
+    changesets = await liquibaseGenerator.reviewChangesets(changesets);
 
     // Store in session
     sessionManager.setChangesets(changesets);
@@ -248,7 +251,7 @@ router.put("/changeset/:id", (req: Request, res: Response) => {
  * POST /api/liquibase/aggregate
  * Merge all changesets into a single changeset
  */
-router.post("/aggregate", (req: Request, res: Response) => {
+router.post("/aggregate", async (req: Request, res: Response) => {
   try {
     const { aggregatedId } = req.body;
 
@@ -266,11 +269,12 @@ router.post("/aggregate", (req: Request, res: Response) => {
       });
     }
 
-    // Aggregate all changesets into one
-    const aggregated = liquibaseGenerator.aggregateChangesets(
-      session.changesets,
-      aggregatedId,
-    );
+    // Aggregate all changesets into one intelligently using LLMs
+    const aggregated =
+      await liquibaseGenerator.aggregateChangesetsIntelligently(
+        session.changesets,
+        aggregatedId,
+      );
 
     // Replace changesets in session with the aggregated one
     sessionManager.setChangesets([aggregated]);
@@ -283,6 +287,24 @@ router.post("/aggregate", (req: Request, res: Response) => {
     console.error("Aggregate error:", error);
     return res.status(500).json({
       error: error.message || "Failed to aggregate changesets",
+    });
+  }
+});
+
+/**
+ * GET /api/liquibase/changesets
+ * List all generated changesets in the current session
+ */
+router.get("/changesets", (req: Request, res: Response) => {
+  try {
+    const session = sessionManager.getSession();
+    return res.json({
+      success: true,
+      changesets: session.changesets || [],
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      error: error.message || "Failed to get changesets",
     });
   }
 });

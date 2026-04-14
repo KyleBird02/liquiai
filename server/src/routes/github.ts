@@ -2,9 +2,40 @@ import express, { Router, Request, Response } from "express";
 import { sessionManager } from "../services/session";
 import { githubService } from "../services/github";
 import { liquibaseGenerator } from "../services/liquibase";
+import { LLMFactory } from "../services/llm";
 import { ChangesetBatch, GitHubFileChange } from "../types/index";
 
 const router = Router();
+
+/**
+ * GET /api/github/applications
+ * Returns a list of Root directories representing applications
+ */
+router.get("/applications", async (req: Request, res: Response) => {
+  try {
+    const apps = await githubService.getApplications();
+    return res.json({ success: true, applications: apps });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/github/sprints
+ * Returns a list of subdirectories representing sprints for an application
+ */
+router.get("/sprints", async (req: Request, res: Response) => {
+  try {
+    const application = req.query.application as string;
+    if (!application) {
+      return res.status(400).json({ error: "application is required" });
+    }
+    const sprints = await githubService.getSprints(application);
+    return res.json({ success: true, sprints });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 /**
  * GET /api/github/preview
@@ -85,6 +116,49 @@ router.get("/preview", async (req: Request, res: Response) => {
     return res.status(500).json({
       error: error.message || "Failed to generate preview",
     });
+  }
+});
+
+/**
+ * GET /api/github/generate-pr-text
+ * Generate simple PR title and description using LLM
+ */
+router.get("/generate-pr-text", async (req: Request, res: Response) => {
+  try {
+    const session = sessionManager.getSession();
+
+    if (session.changesets.length === 0) {
+      return res.status(400).json({ error: "No changesets available" });
+    }
+
+    const provider = LLMFactory.getProvider();
+
+    const changesText = session.changesets
+      .map((cs) => cs.xmlContent)
+      .join("\n\n");
+    const systemPrompt = `You are a helpful assistant. Based on the following Liquibase XML changes, generate a very simple and brief PR title and description. 
+Return exactly JSON format: {"title": "...", "description": "..."}.
+Keep it simple, just a few words. No markdown wrappers.`;
+
+    const userPrompt = `Generate PR text for:\n${changesText}`;
+
+    let responseText = await provider.generateCompletion([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ]);
+
+    responseText = responseText
+      .replace(/^```[a-zA-Z]*\n/, "")
+      .replace(/```$/, "")
+      .trim();
+    const parsed = JSON.parse(responseText);
+
+    return res.json({ title: parsed.title, description: parsed.description });
+  } catch (error: any) {
+    console.error("Generate PR text error:", error);
+    return res
+      .status(500)
+      .json({ error: error.message || "Failed to generate PR text" });
   }
 });
 

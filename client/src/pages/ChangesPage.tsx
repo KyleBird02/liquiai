@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useProposedChanges } from "@/hooks/index";
-import { liquibaseAPI, schemaAPI } from "@/api/index";
+import { liquibaseAPI, schemaAPI, changesAPI } from "@/api/index";
 import { ProposedChange, ValidationError } from "@/types/index";
 import { Loader2, Trash2, Copy } from "lucide-react";
 
@@ -59,6 +59,37 @@ export const ChangesPage: React.FC = () => {
     } catch (err) {
       setApplyError(
         err instanceof Error ? err.message : "Failed to apply change",
+      );
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleRevert = async (changeId: string) => {
+    if (!config?.local) {
+      setApplyError("Local database connection not configured");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Are you sure you want to revert this applied change locally?",
+      )
+    ) {
+      return;
+    }
+    setApplying(true);
+    setApplyError(null);
+    try {
+      const result = await changesAPI.revertChange(changeId, config.local);
+      if (!(result as any).success) {
+        setApplyError((result as any).error || "Failed to revert change");
+      } else {
+        alert("Change reverted successfully!");
+        list(); // Refresh the list
+      }
+    } catch (err) {
+      setApplyError(
+        err instanceof Error ? err.message : "Failed to revert change",
       );
     } finally {
       setApplying(false);
@@ -171,17 +202,31 @@ export const ChangesPage: React.FC = () => {
                     <Copy className="w-4 h-4" />
                     Generate Liquibase XML
                   </button>
-                  <button
-                    onClick={() => handleApply(change.id)}
-                    disabled={change.status !== "validated" || applying}
-                    className={`inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white transition ${
-                      change.status === "validated" && !applying
-                        ? "bg-indigo-600 hover:bg-indigo-700"
-                        : "bg-gray-400 cursor-not-allowed"
-                    }`}
-                  >
-                    {applying ? "Applying..." : "Apply to Database"}
-                  </button>
+                  {change.appliedLocally ? (
+                    <button
+                      onClick={() => handleRevert(change.id)}
+                      disabled={applying || change.type === "DROP_TABLE"}
+                      className={`inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white transition ${
+                        !applying && change.type !== "DROP_TABLE"
+                          ? "bg-orange-600 hover:bg-orange-700"
+                          : "bg-gray-400 cursor-not-allowed"
+                      }`}
+                    >
+                      {applying ? "Reverting..." : "Revert Local DB"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleApply(change.id)}
+                      disabled={change.status !== "validated" || applying}
+                      className={`inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white transition ${
+                        change.status === "validated" && !applying
+                          ? "bg-indigo-600 hover:bg-indigo-700"
+                          : "bg-gray-400 cursor-not-allowed"
+                      }`}
+                    >
+                      {applying ? "Applying..." : "Apply to Local DB"}
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDelete(change.id)}
                     disabled={deleting === change.id}

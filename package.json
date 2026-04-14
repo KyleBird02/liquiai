@@ -19,5 +19,10 @@
     "postgresql"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "dotenv": "^17.4.2",
+    "react-syntax-highlighter": "^16.1.1"
+  }
 }

@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { liquibaseAPI } from "@/api";
+import { liquibaseAPI, githubAPI, schemaAPI } from "@/api";
 
 const LiquibaseSetupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -10,8 +10,53 @@ const LiquibaseSetupPage: React.FC = () => {
     targetSprint: "",
     branchName: "",
   });
+  const [applications, setApplications] = useState<string[]>([]);
+  const [sprints, setSprints] = useState<string[]>([]);
+  const [appDropdownOpen, setAppDropdownOpen] = useState(false);
+  const [sprintDropdownOpen, setSprintDropdownOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      const cfg = await schemaAPI.getConfig();
+      if (cfg && cfg.author) {
+        setFormData((prev) => ({ ...prev, author: cfg.author }));
+      }
+    };
+    fetchConfig();
+  }, []);
+
+  useEffect(() => {
+    const fetchApps = async () => {
+      const apps = await githubAPI.getApplications();
+      if (apps && Array.isArray(apps)) {
+        setApplications(apps);
+      }
+    };
+    fetchApps();
+  }, []);
+
+  useEffect(() => {
+    if (!formData.targetApplication) {
+      setSprints([]);
+      return;
+    }
+    const fetchSprints = async () => {
+      const sp = await githubAPI.getSprints(formData.targetApplication);
+      if (sp && Array.isArray(sp)) {
+        setSprints(sp);
+      }
+    };
+    fetchSprints();
+  }, [formData.targetApplication]);
+
+  const filteredApps = applications.filter((a) =>
+    a.toLowerCase().includes(formData.targetApplication.toLowerCase()),
+  );
+  const filteredSprints = sprints.filter((s) =>
+    s.toLowerCase().includes(formData.targetSprint.toLowerCase()),
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -41,7 +86,7 @@ const LiquibaseSetupPage: React.FC = () => {
       }
 
       // Navigate to the changeset review page
-      navigate("/phase2/changesets");
+      navigate("/liquibase/changesets");
     } catch (err) {
       setError("Failed to initialize session");
     } finally {
@@ -88,7 +133,7 @@ const LiquibaseSetupPage: React.FC = () => {
             </p>
           </div>
 
-          <div>
+          <div className="relative">
             <label
               htmlFor="targetApplication"
               className="block text-sm font-medium text-gray-700 mb-2"
@@ -97,20 +142,43 @@ const LiquibaseSetupPage: React.FC = () => {
             </label>
             <input
               id="targetApplication"
+              autoComplete="off"
               name="targetApplication"
               type="text"
               value={formData.targetApplication}
               onChange={handleChange}
+              onFocus={() => setAppDropdownOpen(true)}
+              onBlur={() => setTimeout(() => setAppDropdownOpen(false), 200)}
               placeholder="e.g., trade-service"
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
             />
+            {appDropdownOpen && filteredApps.length > 0 && (
+              <ul className="absolute z-10 w-full mt-1 bg-white shadow-lg max-h-60 rounded-md py-1 text-base overflow-auto border border-gray-200">
+                {filteredApps.map((app) => (
+                  <li
+                    key={app}
+                    className="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-blue-100/50"
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // Prevents input blur before click
+                      setFormData((prev) => ({
+                        ...prev,
+                        targetApplication: app,
+                      }));
+                      setAppDropdownOpen(false);
+                    }}
+                  >
+                    {app}
+                  </li>
+                ))}
+              </ul>
+            )}
             <p className="mt-1 text-xs text-gray-500">
-              Folder name in liquibase repo
+              Type or select application from GitHub repo
             </p>
           </div>
 
-          <div>
+          <div className="relative">
             <label
               htmlFor="targetSprint"
               className="block text-sm font-medium text-gray-700 mb-2"
@@ -119,16 +187,42 @@ const LiquibaseSetupPage: React.FC = () => {
             </label>
             <input
               id="targetSprint"
+              autoComplete="off"
               name="targetSprint"
               type="text"
               value={formData.targetSprint}
               onChange={handleChange}
+              onFocus={() => setSprintDropdownOpen(true)}
+              onBlur={() => setTimeout(() => setSprintDropdownOpen(false), 200)}
               placeholder="e.g., sprint-42"
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              disabled={!formData.targetApplication}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
             />
+            {sprintDropdownOpen && filteredSprints.length > 0 && (
+              <ul className="absolute z-10 w-full mt-1 bg-white shadow-lg max-h-60 rounded-md py-1 text-base overflow-auto border border-gray-200">
+                {filteredSprints.map((sprint) => (
+                  <li
+                    key={sprint}
+                    className="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-blue-100/50"
+                    onMouseDown={(e) => {
+                      e.preventDefault(); // Prevents input blur before click
+                      setFormData((prev) => ({
+                        ...prev,
+                        targetSprint: sprint,
+                      }));
+                      setSprintDropdownOpen(false);
+                    }}
+                  >
+                    {sprint}
+                  </li>
+                ))}
+              </ul>
+            )}
             <p className="mt-1 text-xs text-gray-500">
-              Sprint folder in application directory
+              {formData.targetApplication
+                ? "Type or select a sprint folder"
+                : "Select an application first"}
             </p>
           </div>
 

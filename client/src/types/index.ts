@@ -19,6 +19,9 @@ export interface ColumnDefinition {
   charMaxLength?: number | null;
   numericPrecision?: number | null;
   numericScale?: number | null;
+  _isProposed?: boolean;
+  _isPendingDelete?: boolean;
+  _isProposedEdit?: boolean;
 }
 
 export interface ColumnDetails extends ColumnDefinition {
@@ -141,6 +144,7 @@ export interface ProposedChange {
   payload: any;
   validationResult?: ValidationResult;
   createdAt: string;
+  appliedLocally?: boolean;
 }
 
 export interface CreateTablePayload {
@@ -155,19 +159,25 @@ export interface AlterTablePayload {
   tableName: string;
   schema: string;
   addedColumns?: ColumnDefinition[];
-  removedColumns?: string[];
+  removedColumns?: ColumnDefinition[];
   modifiedColumns?: ColumnModification[];
   addedForeignKeys?: ForeignKeyDefinition[];
-  removedForeignKeys?: string[];
+  removedForeignKeys?: ForeignKeyDefinition[];
 }
 
 export interface DropTablePayload {
   tableName: string;
   schema: string;
   cascade?: boolean;
+  definition?: TableDefinition;
 }
 
 // Phase 2 - Liquibase Changeset Generation
+
+export interface ChangeReview {
+  severity: "low" | "medium" | "high";
+  message: string;
+}
 
 export interface ChangesetDefinition {
   id: string;
@@ -181,6 +191,7 @@ export interface ChangesetDefinition {
   targetApplication: string;
   targetSprint: string;
   edited: boolean;
+  reviews?: ChangeReview[];
 }
 
 export interface ChangesetBatch {

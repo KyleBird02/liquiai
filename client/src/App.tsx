@@ -21,13 +21,13 @@ function App() {
             <Route path="/changes" element={<ChangesPage />} />
 
             {/* Phase 2 - Liquibase Changeset Generation & PR Creation */}
-            <Route path="/phase2/setup" element={<LiquibaseSetupPage />} />
+            <Route path="/liquibase/setup" element={<LiquibaseSetupPage />} />
             <Route
-              path="/phase2/changesets"
+              path="/liquibase/changesets"
               element={<ChangesetReviewPage />}
             />
-            <Route path="/phase2/preview" element={<FilePreviewPage />} />
-            <Route path="/phase2/create-pr" element={<PRCreationPage />} />
+            <Route path="/liquibase/preview" element={<FilePreviewPage />} />
+            <Route path="/liquibase/create-pr" element={<PRCreationPage />} />
 
             {/* Default route */}
             <Route path="/" element={<Navigate to="/schema" replace />} />

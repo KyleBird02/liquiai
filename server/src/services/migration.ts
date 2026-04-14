@@ -1,10 +1,125 @@
 import { Client } from "pg";
-import { CreateTablePayload, AlterTablePayload } from "../types";
+import {
+  CreateTablePayload,
+  AlterTablePayload,
+  DropTablePayload,
+} from "../types";
 
 class MigrationService {
   /**
    * Apply a CREATE TABLE statement to a database
    */
+  /**
+   * Apply a DROP TABLE statement to a database
+   */
+  async applyDropTable(
+    payload: { tableName: string; schema?: string },
+    connectionString: string,
+  ): Promise<{ success: boolean; message: string; error?: string }> {
+    const client = new Client({ connectionString });
+    try {
+      await client.connect();
+      const schema = payload.schema || "public";
+      const sql = `DROP TABLE "${schema}"."${payload.tableName}" CASCADE;`;
+      console.log("Executing SQL:", sql);
+      await client.query(sql);
+      return {
+        success: true,
+        message: `Table "${payload.tableName}" dropped successfully`,
+      };
+    } catch (error: any) {
+      console.error("Failed to drop table:", error);
+      return {
+        success: false,
+        message: "Failed to drop table",
+        error: error.message,
+      };
+    } finally {
+      await client.end();
+    }
+  }
+
+  async revertDropTable(
+    payload: DropTablePayload,
+    connectionString: string,
+  ): Promise<{ success: boolean; message: string; error?: string }> {
+    if (!payload.definition) {
+      return {
+        success: false,
+        message: "Cannot revert dropped table without its full definition.",
+        error:
+          "Table structure was lost because the payload lacked definition.",
+      };
+    }
+
+    // CreateTablePayload expects these fields
+    const createPayload: CreateTablePayload = {
+      tableName: payload.definition.name,
+      schema: payload.definition.schema,
+      columns: payload.definition.columns,
+      foreignKeys: payload.definition.foreignKeys,
+      primaryKey: payload.definition.primaryKey,
+    };
+
+    return this.applyCreateTable(createPayload, connectionString);
+  }
+
+  async revertAlterTable(
+    payload: AlterTablePayload,
+    connectionString: string,
+  ): Promise<{ success: boolean; message: string; error?: string }> {
+    // To revert an alter table, we swap added with removed columns, inverted modifications, etc.
+    const inversePayload: AlterTablePayload = {
+      tableName: payload.tableName,
+      schema: payload.schema,
+      addedColumns: [],
+      removedColumns: [],
+      modifiedColumns: [],
+      addedForeignKeys: [],
+      removedForeignKeys: [],
+    };
+
+    // Added columns become removed columns
+    if (payload.addedColumns) {
+      inversePayload.removedColumns = payload.addedColumns;
+    }
+
+    // Removed columns become added columns - now that we construct the removed definition it works!
+    if (payload.removedColumns && payload.removedColumns.length > 0) {
+      inversePayload.addedColumns = payload.removedColumns.map((c) => {
+        if (typeof c === "string")
+          throw new Error(
+            "Cannot revert string column defs, need complete def",
+          );
+        return c;
+      });
+    }
+
+    // Modified columns swap old and new definitions
+    if (payload.modifiedColumns) {
+      inversePayload.modifiedColumns = payload.modifiedColumns.map((mod) => ({
+        columnName: mod.newDefinition.name, // The column currently has the new name
+        newDefinition: mod.oldDefinition,
+        oldDefinition: mod.newDefinition,
+      }));
+    }
+
+    // Added foreign keys become removed
+    if (payload.addedForeignKeys) {
+      inversePayload.removedForeignKeys = payload.addedForeignKeys; // Wait, actually we can just pass the whole fk
+    }
+
+    if (payload.removedForeignKeys && payload.removedForeignKeys.length > 0) {
+      inversePayload.addedForeignKeys = payload.removedForeignKeys.map((fk) => {
+        if (typeof fk === "string")
+          throw new Error("Cannot revert string fk defs, need complete def");
+        return fk;
+      });
+    }
+
+    return this.applyAlterTable(inversePayload, connectionString);
+  }
+
   async applyCreateTable(
     payload: CreateTablePayload,
     connectionString: string,
@@ -109,7 +224,8 @@ class MigrationService {
 
     // Handle removed columns
     if (payload.removedColumns && payload.removedColumns.length > 0) {
-      payload.removedColumns.forEach((colName) => {
+      payload.removedColumns.forEach((col) => {
+        const colName = typeof col === "string" ? col : col.name;
         alterParts.push(`DROP COLUMN "${colName}"`);
       });
     }
@@ -171,7 +287,8 @@ class MigrationService {
 
     // Handle removed foreign keys
     if (payload.removedForeignKeys && payload.removedForeignKeys.length > 0) {
-      payload.removedForeignKeys.forEach((constraintName) => {
+      payload.removedForeignKeys.forEach((fk) => {
+        const constraintName = typeof fk === "string" ? fk : fk.constraintName;
         alterParts.push(`DROP CONSTRAINT "${constraintName}"`);
       });
     }

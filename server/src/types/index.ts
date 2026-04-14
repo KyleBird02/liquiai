@@ -99,6 +99,7 @@ export interface ProposedChange {
   payload: CreateTablePayload | AlterTablePayload | DropTablePayload;
   validationResult?: ValidationResult;
   createdAt: string;
+  appliedLocally?: boolean;
 }
 
 export interface CreateTablePayload {
@@ -113,16 +114,17 @@ export interface AlterTablePayload {
   tableName: string;
   schema: string;
   addedColumns?: ColumnDefinition[];
-  removedColumns?: string[];
+  removedColumns?: ColumnDefinition[]; // Object so we can restore
   modifiedColumns?: ColumnModification[];
   addedForeignKeys?: ForeignKeyDefinition[];
-  removedForeignKeys?: string[];
+  removedForeignKeys?: ForeignKeyDefinition[]; // Object so we can restore
 }
 
 export interface DropTablePayload {
   tableName: string;
   schema: string;
   cascade?: boolean;
+  definition?: TableDefinition; // To recreate if reverted
 }
 
 export interface ColumnModification {
@@ -172,6 +174,11 @@ export interface SchemaDiff {
 
 // Phase 2 - Liquibase Changeset Generation
 
+export interface ChangeReview {
+  severity: "low" | "medium" | "high";
+  message: string;
+}
+
 export interface ChangesetDefinition {
   id: string; // e.g. "trade-124"
   author: string;
@@ -184,6 +191,7 @@ export interface ChangesetDefinition {
   targetApplication: string; // folder name e.g. "trade-service"
   targetSprint: string; // sprint folder e.g. "sprint-42"
   edited: boolean; // true if user manually edited XML/SQL
+  reviews?: ChangeReview[];
 }
 
 export interface ChangesetBatch {

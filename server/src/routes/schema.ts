@@ -10,6 +10,7 @@ router.get("/config", (req: Request, res: Response) => {
   res.json({
     dev: process.env.DEV_DB_CONNECTION_STRING || "",
     local: process.env.LOCAL_DB_CONNECTION_STRING || "",
+    author: process.env.LIQUIBASE_CHANGESET_AUTHOR || "",
   });
 });
 

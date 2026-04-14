@@ -7,6 +7,7 @@ import {
   ChangesetDefinition,
 } from "../types/index";
 import { Builder, parseString } from "xml2js";
+import { LLMFactory, LLMMessage } from "./llm";
 
 class LiquibaseGenerator {
   private author: string;
@@ -226,21 +227,11 @@ class LiquibaseGenerator {
   }
 
   private generateCreateTable(payload: CreateTablePayload): any {
-    const { tableName, columns, primaryKey, foreignKeys } = payload;
+    const { tableName, columns, foreignKeys } = payload;
 
     const columnElements = columns.map((col) => this.columnToXml(col));
 
-    const constraints = [];
-
-    if (primaryKey && primaryKey.length > 0) {
-      constraints.push({
-        primaryKey: {
-          $: {
-            columnNames: primaryKey.join(","),
-          },
-        },
-      });
-    }
+    const constraints: any[] = [];
 
     if (foreignKeys && foreignKeys.length > 0) {
       foreignKeys.forEach((fk) => {
@@ -295,12 +286,12 @@ class LiquibaseGenerator {
     });
 
     // Drop columns
-    removedColumns.forEach((colName) => {
+    removedColumns.forEach((col) => {
       changes.push({
         dropColumn: {
           $: {
             tableName,
-            columnName: colName,
+            columnName: typeof col === "string" ? col : col.name, // backward compat
           },
         },
       });
@@ -404,7 +395,8 @@ class LiquibaseGenerator {
     });
 
     // Drop foreign keys
-    removedForeignKeys.forEach((fkName) => {
+    removedForeignKeys.forEach((fk) => {
+      const fkName = typeof fk === "string" ? fk : fk.constraintName;
       changes.push({
         dropForeignKeyConstraint: {
           $: {
@@ -441,24 +433,35 @@ class LiquibaseGenerator {
     const columnAttrs: any = {
       name: col.name,
       type: col.type,
-      remarks: undefined,
     };
-
-    if (!col.nullable) {
-      columnAttrs.constraints = {
-        $: {
-          nullable: "false",
-        },
-      };
-    }
 
     if (col.defaultValue) {
       columnAttrs.defaultValue = col.defaultValue;
     }
 
-    return {
+    const constraintAttrs: any = {};
+
+    if (!col.nullable) {
+      constraintAttrs.nullable = "false";
+    }
+
+    if (col.isPrimaryKey) {
+      constraintAttrs.primaryKey = "true";
+    }
+
+    const result: any = {
       $: columnAttrs,
     };
+
+    if (Object.keys(constraintAttrs).length > 0) {
+      result.constraints = [
+        {
+          $: constraintAttrs,
+        },
+      ];
+    }
+
+    return result;
   }
 
   /**
@@ -518,7 +521,8 @@ class LiquibaseGenerator {
           lines.push(`ALTER TABLE ${tableFqn} ADD COLUMN ${def};`);
         });
 
-        removedColumns.forEach((colName) => {
+        removedColumns.forEach((col) => {
+          const colName = typeof col === "string" ? col : col.name;
           lines.push(`ALTER TABLE ${tableFqn} DROP COLUMN ${colName};`);
         });
 
@@ -569,7 +573,8 @@ class LiquibaseGenerator {
           );
         });
 
-        removedForeignKeys.forEach((fkName) => {
+        removedForeignKeys.forEach((fk) => {
+          const fkName = typeof fk === "string" ? fk : fk.constraintName;
           lines.push(`ALTER TABLE ${tableFqn} DROP CONSTRAINT ${fkName};`);
         });
         break;
@@ -600,22 +605,20 @@ class LiquibaseGenerator {
 
     // Parse and merge all XML blocks
     // For simplicity, we'll create a new multi-operation changeset
-    let mergedXmlContent = `    <changeset id="${aggregatedId}" author="${baseChangeset.author}">`;
+    let mergedXmlContent = `    <changeSet id="${aggregatedId}" author="${baseChangeset.author}">`;
 
     // Add each change operation
     for (const cs of changesets) {
       // Parse the changeset XML to extract just the inner operation
       const xmlMatch = cs.xmlContent.match(
-        /<changeset[^>]*>([\s\S]*)<\/changeset>/,
+        /<change[sS]et[^>]*>\n?([\s\S]*?)\n?\s*<\/change[sS]et>/,
       );
       if (xmlMatch) {
-        const innerContent = xmlMatch[1].trim();
-        mergedXmlContent +=
-          "\n        " + innerContent.replace(/\n/g, "\n        ");
+        mergedXmlContent += "\n" + xmlMatch[1];
       }
     }
 
-    mergedXmlContent += "\n    </changeset>";
+    mergedXmlContent += "\n    </changeSet>";
 
     return {
       id: aggregatedId,
@@ -630,6 +633,169 @@ class LiquibaseGenerator {
       targetSprint: baseChangeset.targetSprint,
       edited: false,
     };
+  }
+
+  /**
+   * Aggregate multiple changesets into a single intelligent changeset using an LLM,
+   * while simultaneously reviewing the merged changes for risks.
+   */
+  async aggregateChangesetsIntelligently(
+    changesets: ChangesetDefinition[],
+    aggregatedId: string,
+  ): Promise<ChangesetDefinition> {
+    if (changesets.length === 0) {
+      throw new Error("Cannot aggregate empty changeset list");
+    }
+    if (changesets.length === 1) {
+      return changesets[0];
+    }
+
+    const baseChangeset = changesets[0];
+
+    // Combine all existing reviews from the individual changesets
+    const combinedReviews = changesets.flatMap((cs) => cs.reviews || []);
+
+    // Extract XML blocks without the `<changeSet>` wrapper.
+    const xmlBlocks: string[] = [];
+    for (const cs of changesets) {
+      const xmlMatch = cs.xmlContent.match(
+        /<change[sS]et[^>]*>\n?([\s\S]*?)\n?\s*<\/change[sS]et>/,
+      );
+      if (xmlMatch) {
+        xmlBlocks.push(xmlMatch[1].trim());
+      }
+    }
+
+    const rawActions = xmlBlocks.join("\n\n");
+    const systemPrompt = `You are a strict, expert Liquibase developer and Database DBA.
+Your goal is to successfully combine multiple Liquibase XML operations into the most optimized, single set of actions.
+Combine operations where appropriate (e.g. creating a table with a column added in a later changeset should just be a single CREATE TABLE changeset).
+
+RETURN EXACTLY ONE VALID JSON OBJECT WITH NO COMMENTS OR STRING WRITINGS. Example format:
+{
+  "xml": "unformatted raw inner Liquibase XML operations. Do NOT output a wrapping <changeSet> tag. Keep 8 spaces of indentation since this output goes directly inside a changeset! Escape quotes properly."
+}
+DO NOT WRAP YOUR RESPONSE IN \`\`\`json. OUTPUT ONLY RAW JSON.`;
+
+    const userPrompt = `Here are the un-combined XML operations meant to be run chronologically:\n${rawActions}\n\nPlease intelligently output the JSON.`;
+
+    const messages: LLMMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ];
+
+    try {
+      const provider = LLMFactory.getProvider();
+      let responseText = await provider.generateCompletion(messages);
+
+      // Strip potential markdown markers
+      responseText = responseText
+        .replace(/^```[a-zA-Z]*\n/, "")
+        .replace(/```$/, "")
+        .trim();
+
+      const parsed = JSON.parse(responseText);
+      const intelligentXml = parsed.xml;
+
+      // Ensure the LLM output has a trailing newline before the closing tag,
+      // and avoid adding extra indentation to the first line if the LLM already padded it.
+      const formattedXml = intelligentXml
+        .split("\n")
+        .map((line: string) => {
+          // If the line has no leading spaces, add 8 spaces
+          if (line.trim().length > 0 && !line.startsWith(" ")) {
+            return "        " + line;
+          }
+          // If it starts with 8 spaces, keep it, else let it be
+          return line;
+        })
+        .join("\n");
+
+      const mergedXmlContent = `    <changeSet id="${aggregatedId}" author="${baseChangeset.author}">
+${formattedXml}
+    </changeSet>`;
+
+      return {
+        id: aggregatedId,
+        author: baseChangeset.author,
+        comment: "Aggregated via AI",
+        changeType: "xml",
+        change: changesets[0].change, // Reference first change
+        sqlFilePath: null,
+        sqlFileContent: null,
+        xmlContent: mergedXmlContent,
+        targetApplication: baseChangeset.targetApplication,
+        targetSprint: baseChangeset.targetSprint,
+        edited: false,
+        reviews: combinedReviews,
+      };
+    } catch (e) {
+      console.warn(
+        "LLM aggregation failed, falling back to basic string append...",
+        e,
+      );
+      const fallback = this.aggregateChangesets(changesets, aggregatedId);
+      fallback.reviews = combinedReviews;
+      return fallback;
+    }
+  }
+
+  /**
+   * Query the LLM to review an array of individual changesets.
+   * Modifies and returns the array with warnings attached.
+   */
+  async reviewChangesets(
+    changesets: ChangesetDefinition[],
+  ): Promise<ChangesetDefinition[]> {
+    if (!changesets || changesets.length === 0) return changesets;
+
+    const payload = changesets.map((cs) => ({ id: cs.id, xml: cs.xmlContent }));
+    const systemPrompt = `You are a Database DBA reviewing Liquibase changesets for potential risks.
+For each changeset ID, identify if there are warnings (e.g. dropping columns risks data loss in higher envs, renaming columns may break APIs, changing field types).
+RETURN EXACTLY ONE VALID JSON OBJECT WITH NO COMMENTS OR STRING WRITINGS. Example format:
+{
+  "reviews": {
+    "changeset_id_here": [
+      { "severity": "medium", "message": "..." }
+    ]
+  }
+}
+DO NOT WRAP YOUR RESPONSE IN \`\`\`json. OUTPUT ONLY RAW JSON.`;
+
+    const userPrompt = `Review these changesets:\n${JSON.stringify(payload, null, 2)}`;
+
+    const messages: LLMMessage[] = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ];
+
+    try {
+      const provider = LLMFactory.getProvider();
+      let responseText = await provider.generateCompletion(messages);
+
+      responseText = responseText
+        .replace(/^```[a-zA-Z]*\n/, "")
+        .replace(/```$/, "")
+        .trim();
+
+      const parsed = JSON.parse(responseText);
+      const reviewsMap = parsed.reviews || {};
+
+      return changesets.map((cs) => {
+        if (reviewsMap[cs.id]) {
+          cs.reviews = reviewsMap[cs.id];
+        } else {
+          cs.reviews = [];
+        }
+        return cs;
+      });
+    } catch (e) {
+      console.warn(
+        "LLM review failed, returning changesets without reviews...",
+        e,
+      );
+      return changesets;
+    }
   }
 }
 

@@ -190,7 +190,8 @@ class ChangeValidator {
 
     // Validate removed columns
     if (removedColumns) {
-      removedColumns.forEach((colName) => {
+      removedColumns.forEach((colDef) => {
+        const colName = colDef.name;
         if (!columnMap.has(colName)) {
           errors.push({
             code: "COLUMN_NOT_FOUND",

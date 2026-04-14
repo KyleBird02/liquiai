@@ -12,6 +12,7 @@ import {
   SchemaViewer,
   CreateTableModal,
   ColumnDetailsTab,
+  AddColumnModal,
 } from "@/components/index";
 import { Loader2, Plus, Zap } from "lucide-react";
 
@@ -31,6 +32,7 @@ export const SchemaPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
   const [proposedChanges, setProposedChanges] = useState<ProposedChange[]>([]);
   const [proposedTables, setProposedTables] = useState<TableDefinition[]>([]);
 
@@ -114,14 +116,43 @@ export const SchemaPage: React.FC = () => {
     }
   };
 
+  const handleRevertChange = async (changeId: string) => {
+    if (
+      !confirm(
+        "Are you sure you want to revert this change in your local database?",
+      )
+    )
+      return;
+    const connectionString = config?.local;
+    if (!connectionString) {
+      setError("No local connection string available");
+      return;
+    }
+
+    try {
+      const result = (await changesAPI.revertChange(
+        changeId,
+        connectionString,
+      )) as any;
+      if (result && !("error" in result)) {
+        alert("Change reverted successfully!");
+        loadProposedChanges();
+        handleEnvChange("local");
+      } else {
+        setError(result.error || "Failed to revert change");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revert change");
+    }
+  };
+
   const handleUpdateColumn = async (
     columnName: string,
     updates: Partial<ColumnDefinition>,
   ) => {
-    const selectedTableObj = snapshot?.tables.find(
-      (t) => t.name === selectedTable,
-    );
-    if (!selectedTableObj) {
+    const selectedTableObj = getDisplayTable();
+
+    if (selectedTableObj.name === "") {
       throw new Error("Table not found");
     }
 
@@ -173,6 +204,97 @@ export const SchemaPage: React.FC = () => {
     }
   };
 
+  const handleAddColumn = async (
+    newColumn: ColumnDefinition,
+    foreignKey?: any,
+  ) => {
+    const selectedTableObj = getDisplayTable();
+
+    if (selectedTableObj.name === "") {
+      throw new Error("Table not found");
+    }
+
+    const schema = selectedTableObj.schema || "public";
+
+    // Create the ALTER_TABLE payload
+    const payload: AlterTablePayload = {
+      tableName: selectedTable,
+      schema,
+      addedColumns: [newColumn],
+      addedForeignKeys: foreignKey ? [foreignKey] : undefined,
+    };
+
+    try {
+      // Propose the change instead of applying it directly
+      const response = await changesAPI.proposeChange("ALTER_TABLE", payload);
+
+      if (response && "error" in response) {
+        throw new Error(response.error);
+      }
+
+      // Reload proposed changes to show the new one
+      await loadProposedChanges();
+      setIsAddColumnModalOpen(false);
+
+      // Show success message
+      alert(`Column added! Review it in the Changes tab.`);
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  const handleDeleteColumn = async (columnName: string) => {
+    const selectedTableObj = getDisplayTable();
+
+    if (selectedTableObj.name === "") {
+      throw new Error("Table not found");
+    }
+
+    const schema = selectedTableObj.schema || "public";
+
+    // Find the column to delete
+    const columnToDelete = selectedTableObj.columns.find(
+      (c) => c.name === columnName,
+    );
+
+    if (!columnToDelete) {
+      throw new Error("Column not found");
+    }
+
+    // Confirm before deleting
+    if (
+      !confirm(
+        `Are you sure you want to delete column "${columnName}"? This will result in a DROP COLUMN operation.`,
+      )
+    ) {
+      return;
+    }
+
+    // Create the ALTER_TABLE payload
+    const payload: AlterTablePayload = {
+      tableName: selectedTable,
+      schema,
+      removedColumns: [columnToDelete],
+    };
+
+    try {
+      // Propose the change instead of applying it directly
+      const response = await changesAPI.proposeChange("ALTER_TABLE", payload);
+
+      if (response && "error" in response) {
+        throw new Error(response.error);
+      }
+
+      // Reload proposed changes to show the new one
+      await loadProposedChanges();
+
+      // Show success message
+      alert(`Column deletion proposed! Review it in the Changes tab.`);
+    } catch (err) {
+      throw err;
+    }
+  };
+
   // Fetch schema when environment changes
   const handleEnvChange = async (env: "dev" | "local") => {
     setSelectedEnv(env);
@@ -200,21 +322,79 @@ export const SchemaPage: React.FC = () => {
     }
   };
 
+  const getDisplayTable = (): TableDefinition => {
+    let baseTable = snapshot?.tables.find((t) => t.name === selectedTable) ||
+      proposedTables.find((t) => t.name === selectedTable) || {
+        name: "",
+        schema: "",
+        columns: [],
+        indexes: [],
+        foreignKeys: [],
+        primaryKey: [],
+      };
+
+    if (!selectedTable) return baseTable;
+
+    // Deep copy to apply modifications non-destructively
+    const displayTable = {
+      ...baseTable,
+      columns: [...baseTable.columns],
+      foreignKeys: [...baseTable.foreignKeys],
+    };
+
+    // Apply pending ALTER_TABLE changes
+    const pendingAlters = proposedChanges.filter(
+      (c) => c.type === "ALTER_TABLE" && c.payload.tableName === selectedTable,
+    );
+
+    pendingAlters.forEach((change) => {
+      if (change.payload.addedColumns) {
+        change.payload.addedColumns.forEach((ac: any) => {
+          displayTable.columns.push({ ...ac, _isProposed: true });
+        });
+      }
+      if (change.payload.removedColumns) {
+        change.payload.removedColumns.forEach((rc: any) => {
+          const idx = displayTable.columns.findIndex((c) => c.name === rc.name);
+          if (idx >= 0)
+            displayTable.columns[idx] = {
+              ...displayTable.columns[idx],
+              _isPendingDelete: true,
+            };
+        });
+      }
+      if (change.payload.modifiedColumns) {
+        change.payload.modifiedColumns.forEach((mc: any) => {
+          const idx = displayTable.columns.findIndex(
+            (c) => c.name === mc.columnName,
+          );
+          if (idx >= 0) {
+            displayTable.columns[idx] = {
+              ...displayTable.columns[idx],
+              ...mc.newDefinition,
+              _isProposedEdit: true,
+            };
+          }
+        });
+      }
+      if (change.payload.addedForeignKeys) {
+        change.payload.addedForeignKeys.forEach((fk: any) => {
+          displayTable.foreignKeys.push(fk);
+        });
+      }
+    });
+
+    return displayTable;
+  };
+
   // Get dependencies for selected table
   const getTableWithDependencies = (): TableDefinition[] => {
     if (!selectedTable) return [];
 
-    // Check if it's a proposed table first
-    const proposedTable = proposedTables.find((t) => t.name === selectedTable);
-    if (proposedTable) {
-      return [proposedTable];
-    }
+    const displayTable = getDisplayTable();
+    if (displayTable.name === "") return [];
 
-    // Otherwise check actual tables
-    if (!snapshot) return [];
-
-    const selected = snapshot.tables.find((t) => t.name === selectedTable);
-    if (!selected) return [];
+    const selected = displayTable;
 
     // Get tables that this table references (outgoing FKs)
     const referencedTables = new Set<string>();
@@ -224,7 +404,7 @@ export const SchemaPage: React.FC = () => {
 
     // Get tables that reference this table (incoming FKs)
     const dependentTables = new Set<string>();
-    snapshot.tables.forEach((table) => {
+    snapshot?.tables.forEach((table) => {
       table.foreignKeys.forEach((fk) => {
         if (fk.referencedTable === selectedTable) {
           dependentTables.add(table.name);
@@ -235,11 +415,11 @@ export const SchemaPage: React.FC = () => {
     // Return selected table + dependencies
     const result = [selected];
     referencedTables.forEach((name) => {
-      const table = snapshot.tables.find((t) => t.name === name);
+      const table = snapshot?.tables.find((t) => t.name === name);
       if (table) result.push(table);
     });
     dependentTables.forEach((name) => {
-      const table = snapshot.tables.find((t) => t.name === name);
+      const table = snapshot?.tables.find((t) => t.name === name);
       if (table && !result.find((t) => t.name === name)) result.push(table);
     });
 
@@ -416,20 +596,18 @@ export const SchemaPage: React.FC = () => {
             )}
             {activeTab === "schema" && (
               <ColumnDetailsTab
-                table={
-                  snapshot?.tables.find((t) => t.name === selectedTable) ||
-                  proposedTables.find((t) => t.name === selectedTable) || {
-                    name: "",
-                    schema: "",
-                    columns: [],
-                    indexes: [],
-                    foreignKeys: [],
-                    primaryKey: [],
-                  }
-                }
+                table={getDisplayTable()}
                 selectedEnv={selectedEnv}
                 onUpdateColumn={
                   selectedEnv === "local" ? handleUpdateColumn : undefined
+                }
+                onAddColumn={
+                  selectedEnv === "local"
+                    ? () => Promise.resolve(setIsAddColumnModalOpen(true))
+                    : undefined
+                }
+                onDeleteColumn={
+                  selectedEnv === "local" ? handleDeleteColumn : undefined
                 }
               />
             )}
@@ -474,6 +652,15 @@ export const SchemaPage: React.FC = () => {
         onTableCreated={handleTableCreated}
         snapshot={snapshot || undefined}
         proposedTables={proposedTables}
+      />
+
+      {/* Add Column Modal */}
+      <AddColumnModal
+        isOpen={isAddColumnModalOpen}
+        onClose={() => setIsAddColumnModalOpen(false)}
+        onAdd={handleAddColumn}
+        tableName={selectedTable}
+        availableTables={[...(snapshot?.tables || []), ...proposedTables]}
       />
     </div>
   );

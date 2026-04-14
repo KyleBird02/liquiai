@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import SyntaxHighlighter from "react-syntax-highlighter";
+import { docco } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { liquibaseAPI } from "@/api";
 import { ChangesetDefinition, ProposedChange } from "@/types";
 
@@ -108,7 +110,39 @@ const ChangesetReviewPage: React.FC = () => {
   };
 
   const handleProceedToPreview = () => {
-    navigate("/phase2/preview");
+    navigate("/liquibase/preview");
+  };
+
+  const handleAggregate = async () => {
+    let minId = "";
+    let minNum = Infinity;
+
+    for (const cs of changesets) {
+      const match = cs.id.match(/^([a-zA-Z-]+)-(\d+)$/);
+      if (match) {
+        const num = parseInt(match[2], 10);
+        if (num < minNum) {
+          minNum = num;
+          minId = cs.id;
+        }
+      }
+    }
+
+    const finalAggregateId = minId || changesets[0]?.id || "aggregated-1";
+
+    setLoading(true);
+    try {
+      const result = await liquibaseAPI.aggregateChangesets(finalAggregateId);
+      if (result.error) {
+        setError("Failed to aggregate: " + result.error);
+      } else {
+        setChangesets(result.changesets);
+      }
+    } catch (err: any) {
+      setError("Error aggregating changesets: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (step === "select") {
@@ -214,7 +248,15 @@ const ChangesetReviewPage: React.FC = () => {
 
         <div className="space-y-4">
           {changesets.map((changeset) => (
-            <ChangesetCard key={changeset.id} changeset={changeset} />
+            <ChangesetCard
+              key={changeset.id}
+              changeset={changeset}
+              onUpdate={(updated) => {
+                setChangesets((prev) =>
+                  prev.map((c) => (c.id === updated.id ? updated : c)),
+                );
+              }}
+            />
           ))}
         </div>
 
@@ -229,6 +271,15 @@ const ChangesetReviewPage: React.FC = () => {
           >
             Back
           </button>
+          {changesets.length > 1 && (
+            <button
+              onClick={handleAggregate}
+              disabled={loading}
+              className="flex-1 bg-yellow-600 text-white py-2 px-4 rounded-md hover:bg-yellow-700 disabled:bg-gray-400 font-medium"
+            >
+              {loading ? "Combining..." : "Combine All Changesets"}
+            </button>
+          )}
           <button
             onClick={handleProceedToPreview}
             className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 font-medium"
@@ -242,32 +293,215 @@ const ChangesetReviewPage: React.FC = () => {
 };
 
 // Changeset card component
-const ChangesetCard: React.FC<{ changeset: ChangesetDefinition }> = ({
-  changeset,
-}) => {
+const ChangesetCard: React.FC<{
+  changeset: ChangesetDefinition;
+  onUpdate: (updated: ChangesetDefinition) => void;
+}> = ({ changeset, onUpdate }) => {
   const [expanded, setExpanded] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedComment, setEditedComment] = useState(changeset.comment || "");
+  const [changeType, setChangeType] = useState(changeset.changeType);
+  const [editedXml, setEditedXml] = useState(changeset.xmlContent);
+  const [editedSql, setEditedSql] = useState(changeset.sqlFileContent || "");
+
+  const handleSaveEdit = async () => {
+    try {
+      const result = await liquibaseAPI.updateChangeset(changeset.id, {
+        comment: editedComment || null,
+        changeType,
+        xmlContent: editedXml,
+        sqlFileContent: editedSql || null,
+      });
+      if (result && !result.error) {
+        onUpdate(result.changeset);
+        setIsEditing(false);
+      }
+    } catch (err) {
+      console.error("Failed to update changeset", err);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          Edit Changeset
+        </h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Comment (optional)
+            </label>
+            <input
+              type="text"
+              value={editedComment}
+              onChange={(e) => setEditedComment(e.target.value)}
+              placeholder="Optional comment for this changeset"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Format
+            </label>
+            <div className="flex gap-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  checked={changeType === "xml"}
+                  onChange={() => setChangeType("xml")}
+                  className="h-4 w-4 text-blue-600"
+                />
+                <span className="ml-2 text-sm text-gray-700">Inline XML</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  checked={changeType === "sql"}
+                  onChange={() => setChangeType("sql")}
+                  className="h-4 w-4 text-blue-600"
+                />
+                <span className="ml-2 text-sm text-gray-700">SQL File</span>
+              </label>
+            </div>
+          </div>
+
+          {changeType === "xml" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                XML Content
+              </label>
+              <textarea
+                value={editedXml}
+                onChange={(e) => setEditedXml(e.target.value)}
+                rows={10}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
+              />
+            </div>
+          )}
+
+          {changeType === "sql" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                SQL Content
+              </label>
+              <textarea
+                value={editedSql}
+                onChange={(e) => setEditedSql(e.target.value)}
+                rows={10}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
+              />
+            </div>
+          )}
+
+          <div className="flex gap-4">
+            <button
+              onClick={handleSaveEdit}
+              className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 font-medium"
+            >
+              Save Changes
+            </button>
+            <button
+              onClick={() => {
+                setIsEditing(false);
+                setEditedComment(changeset.comment || "");
+                setChangeType(changeset.changeType);
+                setEditedXml(changeset.xmlContent);
+                setEditedSql(changeset.sqlFileContent || "");
+              }}
+              className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-400 font-medium"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-md p-6">
       <div className="flex justify-between items-start mb-4">
         <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {changeset.id}
-          </h3>
-          <p className="text-sm text-gray-600">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-gray-900">
+              {changeset.id}
+            </h3>
+            {changeset.reviews && changeset.reviews.length > 0 && (
+              <span
+                className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                  changeset.reviews.some((r) => r.severity === "high")
+                    ? "bg-red-100 text-red-800"
+                    : changeset.reviews.some((r) => r.severity === "medium")
+                      ? "bg-yellow-100 text-yellow-800"
+                      : "bg-blue-100 text-blue-800"
+                }`}
+              >
+                {changeset.reviews.length} Warning
+                {changeset.reviews.length > 1 ? "s" : ""}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-600 mt-1">
             Author: {changeset.author} | Type: {changeset.changeType}
           </p>
+          {changeset.comment && (
+            <p className="text-sm text-blue-600 mt-1">
+              Comment: {changeset.comment}
+            </p>
+          )}
+          {changeset.edited && (
+            <p className="text-xs text-orange-600 mt-1 font-medium">• Edited</p>
+          )}
         </div>
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="text-blue-600 hover:text-blue-800 font-medium"
-        >
-          {expanded ? "Hide" : "Show"} Details
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-blue-600 hover:text-blue-800 font-medium"
+          >
+            {expanded ? "Hide" : "Show"} Details
+          </button>
+          <button
+            onClick={() => {
+              setIsEditing(true);
+              setExpanded(true);
+            }}
+            className="text-blue-600 hover:text-blue-800 font-medium"
+          >
+            Edit
+          </button>
+        </div>
       </div>
 
       {expanded && (
         <div className="mt-4 pt-4 border-t border-gray-200">
+          {changeset.reviews && changeset.reviews.length > 0 && (
+            <div className="mb-6 bg-red-50 border-l-4 border-red-400 p-4 rounded">
+              <h4 className="text-red-800 font-semibold mb-2">
+                AI Review Warnings
+              </h4>
+              <ul className="space-y-2 text-sm">
+                {changeset.reviews.map((review, idx) => (
+                  <li key={idx} className="flex flex-col">
+                    <span
+                      className={`font-semibold ${
+                        review.severity === "high"
+                          ? "text-red-600"
+                          : review.severity === "medium"
+                            ? "text-yellow-600"
+                            : "text-blue-600"
+                      }`}
+                    >
+                      {review.severity.toUpperCase()}
+                    </span>
+                    <span className="text-gray-700">{review.message}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="mb-4">
             <h4 className="font-medium text-gray-900 mb-2">Summary</h4>
             <p className="text-sm text-gray-600">
@@ -283,9 +517,13 @@ const ChangesetCard: React.FC<{ changeset: ChangesetDefinition }> = ({
           {changeset.changeType === "xml" && (
             <div className="mb-4">
               <h4 className="font-medium text-gray-900 mb-2">XML Content</h4>
-              <pre className="bg-gray-100 p-4 rounded text-xs overflow-x-auto">
+              <SyntaxHighlighter
+                language="xml"
+                style={docco}
+                className="rounded text-xs overflow-x-auto"
+              >
                 {changeset.xmlContent}
-              </pre>
+              </SyntaxHighlighter>
             </div>
           )}
 
@@ -295,9 +533,13 @@ const ChangesetCard: React.FC<{ changeset: ChangesetDefinition }> = ({
               <p className="text-sm text-gray-600 mb-2">
                 Path: {changeset.sqlFilePath}
               </p>
-              <pre className="bg-gray-100 p-4 rounded text-xs overflow-x-auto">
+              <SyntaxHighlighter
+                language="sql"
+                style={docco}
+                className="rounded text-xs overflow-x-auto"
+              >
                 {changeset.sqlFileContent}
-              </pre>
+              </SyntaxHighlighter>
             </div>
           )}
         </div>

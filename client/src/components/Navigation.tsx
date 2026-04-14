@@ -14,7 +14,7 @@ export const Navigation: React.FC = () => {
   const navItems = [
     { name: "Schema", path: "/schema", icon: LayoutTemplate },
     { name: "Changes", path: "/changes", icon: GitCommit },
-    { name: "Phase 2: Liquibase", path: "/phase2/setup", icon: FileJson },
+    { name: "Generate Liquibase", path: "/liquibase/setup", icon: FileJson },
   ];
 
   return (
@@ -30,7 +30,7 @@ export const Navigation: React.FC = () => {
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname.startsWith(
-                  item.path === "/phase2/setup" ? "/phase2" : item.path,
+                  item.path === "/liquibase/setup" ? "/liquibase" : item.path,
                 );
                 return (
                   <Link

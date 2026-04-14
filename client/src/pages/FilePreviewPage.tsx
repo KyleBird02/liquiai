@@ -52,7 +52,7 @@ const FilePreviewPage: React.FC = () => {
           </div>
           <div className="mt-4 flex gap-2">
             <button
-              onClick={() => navigate("/phase2/changesets")}
+              onClick={() => navigate("/liquibase/changesets")}
               className="bg-gray-300 text-gray-800 py-2 px-4 rounded hover:bg-gray-400"
             >
               Back
@@ -155,13 +155,13 @@ const FilePreviewPage: React.FC = () => {
         {/* Actions */}
         <div className="mt-8 flex gap-4">
           <button
-            onClick={() => navigate("/phase2/changesets")}
+            onClick={() => navigate("/liquibase/changesets")}
             className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-400 font-medium"
           >
             Back to Changesets
           </button>
           <button
-            onClick={() => navigate("/phase2/create-pr")}
+            onClick={() => navigate("/liquibase/create-pr")}
             className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 font-medium"
           >
             Continue to PR Creation
