@@ -8,13 +8,15 @@ import {
   ColumnDefinition,
 } from "@/types/index";
 import { schemaAPI, changesAPI } from "@/api/index";
+import { useAlertContext } from "@/hooks/AlertContext";
 import {
   SchemaViewer,
   CreateTableModal,
   ColumnDetailsTab,
   AddColumnModal,
+  AIAssistantModal,
 } from "@/components/index";
-import { Loader2, Plus, Zap } from "lucide-react";
+import { Loader2, Plus, Zap, Upload } from "lucide-react";
 
 interface DBConfig {
   dev: string;
@@ -22,6 +24,7 @@ interface DBConfig {
 }
 
 export const SchemaPage: React.FC = () => {
+  const alertContext = useAlertContext();
   const [config, setConfig] = useState<DBConfig | null>(null);
   const [selectedEnv, setSelectedEnv] = useState<"dev" | "local">("local");
   const [snapshot, setSnapshot] = useState<SchemaSnapshot | null>(null);
@@ -33,6 +36,8 @@ export const SchemaPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isAddColumnModalOpen, setIsAddColumnModalOpen] = useState(false);
+  const [isAIAssistantOpen, setIsAIAssistantOpen] = useState(false);
+  const [isSQLUploadOpen, setIsSQLUploadOpen] = useState(false);
   const [proposedChanges, setProposedChanges] = useState<ProposedChange[]>([]);
   const [proposedTables, setProposedTables] = useState<TableDefinition[]>([]);
 
@@ -104,7 +109,7 @@ export const SchemaPage: React.FC = () => {
         connectionString,
       )) as any;
       if (result && !("error" in result)) {
-        alert("Table created successfully!");
+        alertContext.success("Success", "Table created successfully!");
         loadProposedChanges();
         // Refresh schema
         handleEnvChange(selectedEnv);
@@ -117,33 +122,35 @@ export const SchemaPage: React.FC = () => {
   };
 
   const handleRevertChange = async (changeId: string) => {
-    if (
-      !confirm(
-        "Are you sure you want to revert this change in your local database?",
-      )
-    )
-      return;
     const connectionString = config?.local;
     if (!connectionString) {
       setError("No local connection string available");
       return;
     }
 
-    try {
-      const result = (await changesAPI.revertChange(
-        changeId,
-        connectionString,
-      )) as any;
-      if (result && !("error" in result)) {
-        alert("Change reverted successfully!");
-        loadProposedChanges();
-        handleEnvChange("local");
-      } else {
-        setError(result.error || "Failed to revert change");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revert change");
-    }
+    alertContext.confirm(
+      "Revert Change",
+      "Are you sure you want to revert this change in your local database? This action cannot be undone.",
+      async () => {
+        try {
+          const result = (await changesAPI.revertChange(
+            changeId,
+            connectionString,
+          )) as any;
+          if (result && !("error" in result)) {
+            alertContext.success("Success", "Change reverted successfully!");
+            loadProposedChanges();
+            handleEnvChange("local");
+          } else {
+            setError(result.error || "Failed to revert change");
+          }
+        } catch (err) {
+          setError(
+            err instanceof Error ? err.message : "Failed to revert change",
+          );
+        }
+      },
+    );
   };
 
   const handleUpdateColumn = async (
@@ -166,25 +173,42 @@ export const SchemaPage: React.FC = () => {
       throw new Error("Column not found");
     }
 
-    // Create the modified column with the updates
-    const modifiedColumn: ColumnDefinition = {
-      ...originalColumn,
-      ...updates,
-    };
-
-    // Create a ColumnModification record
-    const columnModification: ColumnModification = {
-      columnName: originalColumn.name,
-      oldDefinition: originalColumn,
-      newDefinition: modifiedColumn,
-    };
+    // Extract foreignKey if present
+    const foreignKey = (updates as any).foreignKey;
+    const { foreignKey: _, ...columnUpdates } = updates as any;
 
     // Create the ALTER_TABLE payload
     const payload: AlterTablePayload = {
       tableName: selectedTable,
       schema,
-      modifiedColumns: [columnModification],
     };
+
+    // Add column modifications only if there are actual column changes
+    const columnKeys = Object.keys(columnUpdates);
+    if (columnKeys.length > 0 || foreignKey) {
+      const modifiedColumn: ColumnDefinition = {
+        ...originalColumn,
+        ...columnUpdates,
+      };
+
+      // If adding a foreign key, mark the column as a foreign key
+      if (foreignKey) {
+        modifiedColumn.isForeignKey = true;
+      }
+
+      const columnModification: ColumnModification = {
+        columnName: originalColumn.name,
+        oldDefinition: originalColumn,
+        newDefinition: modifiedColumn,
+      };
+
+      payload.modifiedColumns = [columnModification];
+    }
+
+    // Add foreign key if being added
+    if (foreignKey) {
+      payload.addedForeignKeys = [foreignKey];
+    }
 
     try {
       // Propose the change instead of applying it directly
@@ -198,7 +222,10 @@ export const SchemaPage: React.FC = () => {
       await loadProposedChanges();
 
       // Show success message
-      alert(`Column update proposed! Review it in the Changes tab.`);
+      alertContext.success(
+        "Column Update Proposed",
+        "Review it in the Changes tab.",
+      );
     } catch (err) {
       throw err;
     }
@@ -237,7 +264,7 @@ export const SchemaPage: React.FC = () => {
       setIsAddColumnModalOpen(false);
 
       // Show success message
-      alert(`Column added! Review it in the Changes tab.`);
+      alertContext.success("Column Added", "Review it in the Changes tab.");
     } catch (err) {
       throw err;
     }
@@ -261,38 +288,40 @@ export const SchemaPage: React.FC = () => {
       throw new Error("Column not found");
     }
 
-    // Confirm before deleting
-    if (
-      !confirm(
-        `Are you sure you want to delete column "${columnName}"? This will result in a DROP COLUMN operation.`,
-      )
-    ) {
-      return;
-    }
-
-    // Create the ALTER_TABLE payload
     const payload: AlterTablePayload = {
       tableName: selectedTable,
       schema,
       removedColumns: [columnToDelete],
     };
 
-    try {
-      // Propose the change instead of applying it directly
-      const response = await changesAPI.proposeChange("ALTER_TABLE", payload);
+    alertContext.confirm(
+      "Delete Column",
+      `Are you sure you want to delete column "${columnName}"? This will result in a DROP COLUMN operation.`,
+      async () => {
+        try {
+          // Propose the change instead of applying it directly
+          const response = await changesAPI.proposeChange(
+            "ALTER_TABLE",
+            payload,
+          );
 
-      if (response && "error" in response) {
-        throw new Error(response.error);
-      }
+          if (response && "error" in response) {
+            throw new Error(response.error);
+          }
 
-      // Reload proposed changes to show the new one
-      await loadProposedChanges();
+          // Reload proposed changes to show the new one
+          await loadProposedChanges();
 
-      // Show success message
-      alert(`Column deletion proposed! Review it in the Changes tab.`);
-    } catch (err) {
-      throw err;
-    }
+          // Show success message
+          alertContext.success(
+            "Column Deletion Proposed",
+            "Review it in the Changes tab.",
+          );
+        } catch (err) {
+          throw err;
+        }
+      },
+    );
   };
 
   // Fetch schema when environment changes
@@ -429,13 +458,31 @@ export const SchemaPage: React.FC = () => {
   return (
     <div className="px-4 py-8 max-w-7xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-gray-900 mb-6">
-          Schema Explorer
-        </h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-4xl font-bold text-gray-900">Schema Explorer</h1>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsSQLUploadOpen(true)}
+              disabled={loading}
+              className="flex items-center justify-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Execute SQL</span>
+            </button>
+            <button
+              onClick={() => setIsAIAssistantOpen(true)}
+              disabled={loading}
+              className="flex items-center justify-center space-x-2 bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              <Zap className="w-4 h-4" />
+              <span>AI Assistant</span>
+            </button>
+          </div>
+        </div>
 
         {/* Database Selection */}
         <div className="bg-white p-6 rounded-lg shadow border border-gray-200 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Environment
@@ -480,6 +527,21 @@ export const SchemaPage: React.FC = () => {
                   </optgroup>
                 )}
               </select>
+            </div>
+
+            {/* Create Table & AI Assistant Buttons */}
+            <div className="col-span-1 md:col-span-1 space-y-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                &nbsp;
+              </label>
+              <button
+                onClick={() => setIsCreateModalOpen(true)}
+                disabled={loading}
+                className="w-full flex items-center justify-center space-x-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Table</span>
+              </button>
             </div>
           </div>
 
@@ -540,16 +602,6 @@ export const SchemaPage: React.FC = () => {
                     <span>Apply to Database</span>
                   </button>
                 )}
-              {selectedEnv === "local" &&
-                !proposedTables.find((t) => t.name === selectedTable) && (
-                  <button
-                    onClick={() => setIsCreateModalOpen(true)}
-                    className="flex items-center space-x-2 bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Create Table</span>
-                  </button>
-                )}
             </div>
           </div>
 
@@ -597,6 +649,11 @@ export const SchemaPage: React.FC = () => {
             {activeTab === "schema" && (
               <ColumnDetailsTab
                 table={getDisplayTable()}
+                availableTables={
+                  snapshot
+                    ? [...snapshot.tables, ...proposedTables]
+                    : proposedTables
+                }
                 selectedEnv={selectedEnv}
                 onUpdateColumn={
                   selectedEnv === "local" ? handleUpdateColumn : undefined
@@ -661,6 +718,34 @@ export const SchemaPage: React.FC = () => {
         onAdd={handleAddColumn}
         tableName={selectedTable}
         availableTables={[...(snapshot?.tables || []), ...proposedTables]}
+      />
+
+      {/* AI Assistant Modal */}
+      <AIAssistantModal
+        isOpen={isAIAssistantOpen}
+        onClose={() => setIsAIAssistantOpen(false)}
+        onSuccess={() => {
+          loadProposedChanges();
+          alertContext.success(
+            "Success",
+            "Tables created successfully! Check the Changes page to review.",
+          );
+        }}
+      />
+
+      {/* SQL Upload Modal */}
+      <SQLUploadModal
+        isOpen={isSQLUploadOpen}
+        onClose={() => setIsSQLUploadOpen(false)}
+        connectionString={selectedEnv === "dev" ? config?.dev : config?.local}
+        onSuccess={() => {
+          loadProposedChanges();
+          handleEnvChange(selectedEnv);
+          alertContext.success(
+            "Success",
+            "SQL executed successfully! Schema and data refreshed.",
+          );
+        }}
       />
     </div>
   );
@@ -773,6 +858,121 @@ const TableDataViewer: React.FC<TableDataViewerProps> = ({
           Showing first 50 of {data.length} rows
         </div>
       )}
+    </div>
+  );
+};
+
+// SQL Upload Modal Component
+interface SQLUploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  connectionString?: string;
+  onSuccess: () => void;
+}
+
+const SQLUploadModal: React.FC<SQLUploadModalProps> = ({
+  isOpen,
+  onClose,
+  connectionString,
+  onSuccess,
+}) => {
+  const [sqlInput, setSqlInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const alertContext = useAlertContext();
+
+  const handleExecute = async () => {
+    if (!sqlInput.trim()) {
+      setError("Please enter SQL to create a proposed change");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/changes/from-sql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sql: sqlInput }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || result.error) {
+        setError(result.error || "Failed to create proposed change");
+        return;
+      }
+
+      alertContext.success(
+        "Success",
+        "SQL change proposal created! Review it in the Changes page.",
+      );
+      setSqlInput("");
+      onSuccess();
+      onClose();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to create proposed change",
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full mx-4 max-h-96 flex flex-col">
+        <div className="px-6 py-4 border-b flex justify-between items-center">
+          <h2 className="text-xl font-bold text-gray-900">
+            Create SQL Proposal
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-auto px-6 py-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            SQL Statement
+          </label>
+          <textarea
+            value={sqlInput}
+            onChange={(e) => setSqlInput(e.target.value)}
+            disabled={loading}
+            placeholder="Enter your SQL here. This will be added as a proposed change..."
+            className="w-full h-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm disabled:bg-gray-100"
+          />
+
+          {error && (
+            <div className="mt-4 rounded-md bg-red-50 p-3 border border-red-200">
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleExecute}
+            disabled={loading || !sqlInput.trim()}
+            className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? "Creating..." : "Create Proposal"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

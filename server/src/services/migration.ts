@@ -3,6 +3,7 @@ import {
   CreateTablePayload,
   AlterTablePayload,
   DropTablePayload,
+  ProposedChange,
 } from "../types";
 
 class MigrationService {
@@ -361,6 +362,62 @@ class MigrationService {
     const sql = `CREATE TABLE ${safeTableName} (\n  ${allDefs.join(",\n  ")}\n);`;
 
     return sql;
+  }
+  /**
+   * Public method to generate SQL preview for a change without executing it
+   */
+  generateSqlPreview(change: ProposedChange): string {
+    if (change.type === "CREATE_TABLE") {
+      return this.generateCreateTableSQL(change.payload as CreateTablePayload);
+    } else if (change.type === "ALTER_TABLE") {
+      return this.generateAlterTableSQL(
+        change.payload as AlterTablePayload,
+      ).join("\n");
+    } else if (change.type === "DROP_TABLE") {
+      const payload = change.payload as DropTablePayload;
+      const schema = payload.schema || "public";
+      return `DROP TABLE "${schema}"."${payload.tableName}" CASCADE;`;
+    } else if (change.type === "EXECUTE_SQL") {
+      return (change.payload as any).sql || "-- SQL preview not available";
+    }
+    return "-- SQL preview not available";
+  }
+
+  /**
+   * Execute raw SQL statement
+   */
+  async executeSQL(
+    sql: string,
+    connectionString: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+    rowsAffected?: number;
+  }> {
+    const client = new Client({ connectionString });
+
+    try {
+      await client.connect();
+
+      console.log("Executing SQL:", sql);
+      const result = await client.query(sql);
+
+      return {
+        success: true,
+        message: "SQL executed successfully",
+        rowsAffected: result.rowCount || 0,
+      };
+    } catch (error: any) {
+      console.error("Failed to execute SQL:", error);
+      return {
+        success: false,
+        message: "Failed to execute SQL",
+        error: error.message,
+      };
+    } finally {
+      await client.end();
+    }
   }
 }
 

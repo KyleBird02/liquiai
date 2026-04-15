@@ -15,6 +15,8 @@ export { SchemaViewer } from "./SchemaViewer";
 export { CreateTableModal } from "./CreateTableModal";
 export { ColumnDetailsTab } from "./ColumnDetailsTab";
 export { AddColumnModal } from "./AddColumnModal";
+export { AlertModal } from "./AlertModal";
+export { AIAssistantModal } from "./AIAssistantModal";
 // ValidationPanel.tsx - Show validation errors/warnings from changes
 // ChangesetViewer.tsx - Display generated Liquibase XML changeset
 // ChangesList.tsx - List all proposed changes in session

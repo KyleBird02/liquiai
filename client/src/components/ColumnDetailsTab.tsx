@@ -8,17 +8,16 @@ import {
   ChevronDown,
   ChevronUp,
   Edit2,
-  Save,
-  X,
   Key,
   Link,
   AlertCircle,
   Plus,
-  Trash2,
 } from "lucide-react";
+import { AddColumnModal } from "./AddColumnModal";
 
 interface ColumnDetailsTabProps {
   table: TableDefinition;
+  availableTables?: TableDefinition[];
   selectedEnv: "dev" | "local";
   onUpdateColumn?: (
     columnName: string,
@@ -38,17 +37,17 @@ interface EditingColumn {
 
 export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
   table,
+  availableTables,
   selectedEnv,
   onUpdateColumn,
   onAddColumn,
   onDeleteColumn,
 }) => {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [editingColumn, setEditingColumn] = useState<EditingColumn | null>(
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingColumn, setEditingColumn] = useState<ColumnDefinition | null>(
     null,
   );
-  const [updatingColumn, setUpdatingColumn] = useState<string | null>(null);
-  const [deletingColumn, setDeletingColumn] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const canEdit =
@@ -65,62 +64,15 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
     setExpandedRows(newExpanded);
   };
 
-  const startEdit = (column: ColumnDefinition) => {
-    setEditingColumn({
-      originalName: column.name,
-      name: column.name,
-      type: column.type,
-      nullable: column.nullable,
-      defaultValue: column.defaultValue,
-    });
+  const openEditModal = (column: ColumnDefinition) => {
+    setEditingColumn(column);
+    setIsModalOpen(true);
   };
 
-  const cancelEdit = () => {
+  const closeEditModal = () => {
+    setIsModalOpen(false);
     setEditingColumn(null);
     setError(null);
-  };
-
-  const handleDeleteColumn = async (columnName: string) => {
-    if (!onDeleteColumn) return;
-    setDeletingColumn(columnName);
-    try {
-      await onDeleteColumn(columnName);
-      setEditingColumn(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete column");
-    } finally {
-      setDeletingColumn(null);
-    }
-  };
-
-  const handleAddColumn = async () => {
-    if (!onAddColumn) return;
-    try {
-      await onAddColumn();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add column");
-    }
-  };
-
-  const saveEdit = async (originalName: string) => {
-    if (!editingColumn || !onUpdateColumn) return;
-
-    setUpdatingColumn(originalName);
-    setError(null);
-
-    try {
-      await onUpdateColumn(originalName, {
-        name: editingColumn.name,
-        type: editingColumn.type,
-        nullable: editingColumn.nullable,
-        defaultValue: editingColumn.defaultValue,
-      });
-      setEditingColumn(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update column");
-    } finally {
-      setUpdatingColumn(null);
-    }
   };
 
   return (
@@ -134,10 +86,13 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-end items-center mb-4">
         {canEdit && (
           <button
-            onClick={handleAddColumn}
+            onClick={() => {
+              setEditingColumn(null);
+              setIsModalOpen(true);
+            }}
             className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition text-sm font-medium"
             title="Add new column to table"
           >
@@ -180,16 +135,11 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
           <tbody>
             {table.columns.map((column, index) => {
               const isExpanded = expandedRows.has(column.name);
-              const isEditing = editingColumn?.originalName === column.name;
 
               return (
                 <React.Fragment key={column.name}>
                   {/* Main Row */}
-                  <tr
-                    className={`border-b border-gray-200 transition ${
-                      isEditing ? "bg-indigo-50" : "hover:bg-gray-50"
-                    }`}
-                  >
+                  <tr className="border-b border-gray-200 hover:bg-gray-50 transition">
                     <td className="px-4 py-3 text-center">
                       <button
                         onClick={() => toggleRow(column.name)}
@@ -211,58 +161,30 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
                         {column.isForeignKey && (
                           <Link className="w-4 h-4 text-blue-600" />
                         )}
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editingColumn?.name || ""}
-                            onChange={(e) =>
-                              setEditingColumn({
-                                ...editingColumn!,
-                                name: e.target.value,
-                              })
-                            }
-                            className="px-2 py-1 border border-indigo-300 rounded font-mono text-sm"
-                          />
-                        ) : (
-                          <span className="font-mono text-sm">
-                            {column.name}
-                            {column._isProposed && (
-                              <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-green-100 text-green-800 rounded uppercase font-bold tracking-wider">
-                                New
-                              </span>
-                            )}
-                            {column._isProposedEdit && (
-                              <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-yellow-100 text-yellow-800 rounded uppercase font-bold tracking-wider">
-                                Edited
-                              </span>
-                            )}
-                            {column._isPendingDelete && (
-                              <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-red-100 text-red-800 rounded uppercase font-bold tracking-wider">
-                                Pending Drop
-                              </span>
-                            )}
-                          </span>
-                        )}
+                        <span className="font-mono text-sm">
+                          {column.name}
+                          {column._isProposed && (
+                            <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-green-100 text-green-800 rounded uppercase font-bold tracking-wider">
+                              New
+                            </span>
+                          )}
+                          {column._isProposedEdit && (
+                            <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-yellow-100 text-yellow-800 rounded uppercase font-bold tracking-wider">
+                              Edited
+                            </span>
+                          )}
+                          {column._isPendingDelete && (
+                            <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-red-100 text-red-800 rounded uppercase font-bold tracking-wider">
+                              Pending Drop
+                            </span>
+                          )}
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editingColumn?.type || ""}
-                          onChange={(e) =>
-                            setEditingColumn({
-                              ...editingColumn!,
-                              type: e.target.value,
-                            })
-                          }
-                          className="px-2 py-1 border border-indigo-300 rounded font-mono text-sm"
-                        />
-                      ) : (
-                        <span className="font-mono text-sm text-gray-600">
-                          {column.type}
-                        </span>
-                      )}
+                      <span className="font-mono text-sm text-gray-600">
+                        {column.type}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {column.ordinalPosition || index + 1}
@@ -271,87 +193,30 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
                       {column.collation || "default"}
                     </td>
                     <td className="px-4 py-3">
-                      {isEditing ? (
-                        <input
-                          type="checkbox"
-                          checked={!editingColumn?.nullable}
-                          onChange={(e) =>
-                            setEditingColumn({
-                              ...editingColumn!,
-                              nullable: !e.target.checked,
-                            })
-                          }
-                          className="w-4 h-4"
-                        />
-                      ) : (
-                        <span className="text-sm">
-                          {!column.nullable ? (
-                            <span className="text-amber-600 font-medium">
-                              YES
-                            </span>
-                          ) : (
-                            <span className="text-gray-500">—</span>
-                          )}
-                        </span>
-                      )}
+                      <span className="text-sm">
+                        {!column.nullable ? (
+                          <span className="text-amber-600 font-medium">
+                            YES
+                          </span>
+                        ) : (
+                          <span className="text-gray-500">—</span>
+                        )}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          value={editingColumn?.defaultValue || ""}
-                          onChange={(e) =>
-                            setEditingColumn({
-                              ...editingColumn!,
-                              defaultValue: e.target.value || null,
-                            })
-                          }
-                          placeholder="null"
-                          className="px-2 py-1 border border-indigo-300 rounded font-mono text-sm w-full"
-                        />
-                      ) : (
-                        <span className="font-mono text-sm text-gray-600">
-                          {column.defaultValue || "—"}
-                        </span>
-                      )}
+                      <span className="font-mono text-sm text-gray-600">
+                        {column.defaultValue || "—"}
+                      </span>
                     </td>
                     {canEdit && (
                       <td className="px-4 py-3 text-center">
-                        {isEditing ? (
-                          <div className="flex gap-2 justify-center">
-                            <button
-                              onClick={() => saveEdit(column.name)}
-                              disabled={updatingColumn === column.name}
-                              className="p-1 text-green-600 hover:bg-green-50 rounded disabled:opacity-50"
-                              title="Save changes"
-                            >
-                              <Save className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteColumn(column.name)}
-                              disabled={deletingColumn === column.name}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
-                              title="Delete column"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={cancelEdit}
-                              className="p-1 text-gray-600 hover:bg-gray-100 rounded"
-                              title="Cancel editing"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => startEdit(column)}
-                            className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"
-                            title="Edit column"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => openEditModal(column)}
+                          className="p-1 text-indigo-600 hover:bg-indigo-50 rounded"
+                          title="Edit column"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
                       </td>
                     )}
                   </tr>
@@ -563,6 +428,17 @@ export const ColumnDetailsTab: React.FC<ColumnDetailsTabProps> = ({
           <p className="text-gray-500">No columns in this table</p>
         </div>
       )}
+
+      <AddColumnModal
+        isOpen={isModalOpen}
+        onClose={closeEditModal}
+        onAdd={onAddColumn}
+        onUpdate={onUpdateColumn}
+        onDelete={onDeleteColumn}
+        tableName={table.name}
+        availableTables={availableTables || [table]}
+        editingColumn={editingColumn || undefined}
+      />
     </div>
   );
 };

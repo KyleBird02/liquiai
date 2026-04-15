@@ -69,7 +69,7 @@ router.post("/add-proposed-changes", (req: Request, res: Response) => {
       });
     }
 
-    const session = sessionManager.addProposedChanges(changes);
+    const session = sessionManager.setProposedChanges(changes);
 
     return res.json({
       success: true,

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Database, AlertCircle } from "lucide-react";
 import { useDatabaseConnection } from "@/hooks/index";
+import { useAlertContext } from "@/hooks/AlertContext";
 import { schemaAPI } from "@/api/index";
 
 interface ConnectionFormProps {
@@ -10,6 +11,7 @@ interface ConnectionFormProps {
 export const ConnectionForm: React.FC<ConnectionFormProps> = ({
   onConnected,
 }) => {
+  const alertContext = useAlertContext();
   const [connectionString, setConnString] = useState("");
   const [configLoaded, setConfigLoaded] = useState(false);
   const { connect, loading, error, isConnected } = useDatabaseConnection();
@@ -36,7 +38,7 @@ export const ConnectionForm: React.FC<ConnectionFormProps> = ({
     e.preventDefault();
     console.log("Submitting connection with:", connectionString);
     if (!connectionString.trim()) {
-      alert("Please enter a connection string");
+      alertContext.error("Invalid Input", "Please enter a connection string");
       return;
     }
     const success = await connect(connectionString);

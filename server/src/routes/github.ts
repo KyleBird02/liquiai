@@ -1,7 +1,6 @@
 import express, { Router, Request, Response } from "express";
 import { sessionManager } from "../services/session";
 import { githubService } from "../services/github";
-import { liquibaseGenerator } from "../services/liquibase";
 import { LLMFactory } from "../services/llm";
 import { ChangesetBatch, GitHubFileChange } from "../types/index";
 
@@ -62,26 +61,19 @@ router.get("/preview", async (req: Request, res: Response) => {
       });
     }
 
-    // Fetch current changeset.xml from GitHub
-    const branch = session.branchName || `OCDEV-${session.author}`;
-    const currentXml = await githubService.fetchChangesetXml(
-      session.targetApplication,
-      branch,
-    );
+    const newChangesetXmls = session.changesets
+      .filter((cs) => cs.changeType === "xml")
+      .map((cs) => cs.xmlContent);
 
-    // Generate the updated changeset.xml with new entries appended
-    const updatedXml = liquibaseGenerator.appendToChangesetXml(
-      currentXml,
-      session.changesets
-        .filter((cs) => cs.changeType === "xml")
-        .map((cs) => cs.xmlContent),
-    );
+    // Combine new changesets into a preview snippet
+    const newChangesetPreview = newChangesetXmls.join("\n\n");
 
     // Prepare file changes
     const files: GitHubFileChange[] = [
       {
         path: `${session.targetApplication}/changeset.xml`,
-        content: updatedXml,
+        newContent: newChangesetPreview,
+        fileType: "changeset-xml",
         message: `Update changeset.xml - Add ${session.changesets.length} new changesets`,
       },
     ];
@@ -95,7 +87,7 @@ router.get("/preview", async (req: Request, res: Response) => {
       ) {
         files.push({
           path: changeset.sqlFilePath,
-          content: changeset.sqlFileContent,
+          fileType: "sql-file",
           message: `Add migration: ${changeset.id}`,
         });
       }
@@ -195,24 +187,11 @@ router.post("/create-pr", async (req: Request, res: Response) => {
 
     // Fetch current changeset.xml from GitHub
     const branch = session.branchName || `OCDEV-${session.author}`;
-    const currentXml = await githubService.fetchChangesetXml(
-      session.targetApplication,
-      branch,
-    );
-
-    // Generate the updated changeset.xml
-    const updatedXml = liquibaseGenerator.appendToChangesetXml(
-      currentXml,
-      session.changesets
-        .filter((cs) => cs.changeType === "xml")
-        .map((cs) => cs.xmlContent),
-    );
 
     // Prepare all file changes
     const files: GitHubFileChange[] = [
       {
         path: `${session.targetApplication}/changeset.xml`,
-        content: updatedXml,
         message: `Update changeset.xml - Add ${session.changesets.length} new changesets`,
       },
     ];
@@ -226,7 +205,6 @@ router.post("/create-pr", async (req: Request, res: Response) => {
       ) {
         files.push({
           path: changeset.sqlFilePath,
-          content: changeset.sqlFileContent,
           message: `Add SQL migration: ${changeset.id}`,
         });
       }
@@ -252,8 +230,10 @@ router.post("/create-pr", async (req: Request, res: Response) => {
       prTitle,
       prDescription,
     };
-
     sessionManager.setBatch(batch);
+
+    sessionManager.setChangesets([]);
+    sessionManager.setProposedChanges([]);
 
     return res.json({
       success: true,

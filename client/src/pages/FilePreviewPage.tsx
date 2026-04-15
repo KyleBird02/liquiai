@@ -144,9 +144,55 @@ const FilePreviewPage: React.FC = () => {
               </div>
 
               <div className="flex-1 overflow-auto">
-                <pre className="bg-gray-900 text-gray-100 p-4 rounded text-xs font-mono leading-relaxed">
-                  {currentFile.content}
-                </pre>
+                {currentFile.fileType === "changeset-xml" ? (
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded p-4">
+                      <p className="text-sm font-medium text-blue-900 mb-2">
+                        📍 Location
+                      </p>
+                      <p className="text-sm text-blue-800 font-mono">
+                        {currentFile.path}
+                        <br />
+                        <span className="text-xs">
+                          (before closing {"</databaseChangeLog>"} tag)
+                        </span>
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 mb-2">
+                        New Changesets to Add
+                      </p>
+                      <pre className="bg-gray-900 text-gray-100 p-4 rounded text-xs font-mono leading-relaxed overflow-auto">
+                        {currentFile.newContent}
+                      </pre>
+                    </div>
+                  </div>
+                ) : currentFile.fileType === "sql-file" ? (
+                  <div className="space-y-4">
+                    <div className="bg-green-50 border border-green-200 rounded p-4">
+                      <p className="text-sm font-medium text-green-900 mb-2">
+                        📁 File Location
+                      </p>
+                      <p className="text-sm text-green-800 font-mono">
+                        {currentFile.path}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 mb-2">
+                        SQL File Content
+                      </p>
+                      <pre className="bg-gray-900 text-gray-100 p-4 rounded text-xs font-mono leading-relaxed overflow-auto">
+                        {currentFile.content}
+                      </pre>
+                    </div>
+                  </div>
+                ) : (
+                  <pre className="bg-gray-900 text-gray-100 p-4 rounded text-xs font-mono leading-relaxed">
+                    {currentFile.content}
+                  </pre>
+                )}
               </div>
             </div>
           )}

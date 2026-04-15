@@ -16,7 +16,6 @@ const ChangesetReviewPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"select" | "review">("select");
 
-  // Load session and proposed changes
   useEffect(() => {
     loadSession();
     loadProposedChanges();
@@ -26,6 +25,15 @@ const ChangesetReviewPage: React.FC = () => {
     try {
       const result = await liquibaseAPI.getSession();
       setSession(result);
+
+      if (result.changesets && result.changesets.length > 0) {
+        setChangesets(result.changesets);
+        if (result.proposedChanges && result.proposedChanges.length > 0) {
+          setSelectedChanges(result.proposedChanges.map((c: any) => c.id));
+        }
+        setStartId(result.changesets[0]?.id || "");
+        setStep("review");
+      }
     } catch (err) {
       setError("Failed to load session");
     }
@@ -246,6 +254,106 @@ const ChangesetReviewPage: React.FC = () => {
           </div>
         )}
 
+        {changesets.length > 0 && (
+          <div className="mb-8">
+            {(() => {
+              const highSeverity = changesets.reduce(
+                (count, cs) =>
+                  count +
+                  (cs.reviews?.filter((r) => r.severity === "high").length ||
+                    0),
+                0,
+              );
+              const mediumSeverity = changesets.reduce(
+                (count, cs) =>
+                  count +
+                  (cs.reviews?.filter((r) => r.severity === "medium").length ||
+                    0),
+                0,
+              );
+              const lowSeverity = changesets.reduce(
+                (count, cs) =>
+                  count +
+                  (cs.reviews?.filter((r) => r.severity === "low").length || 0),
+                0,
+              );
+              const totalWarnings = highSeverity + mediumSeverity + lowSeverity;
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* High Severity */}
+                  {highSeverity > 0 && (
+                    <div className="bg-white border-l-4 border-red-500 rounded-lg p-4 shadow-sm">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-gray-600 text-sm font-medium">
+                            Critical Issues
+                          </p>
+                          <p className="text-3xl font-bold text-red-600 mt-1">
+                            {highSeverity}
+                          </p>
+                        </div>
+                        <div className="text-3xl">🚨</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Medium Severity */}
+                  {mediumSeverity > 0 && (
+                    <div className="bg-white border-l-4 border-yellow-500 rounded-lg p-4 shadow-sm">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-gray-600 text-sm font-medium">
+                            Warnings
+                          </p>
+                          <p className="text-3xl font-bold text-yellow-600 mt-1">
+                            {mediumSeverity}
+                          </p>
+                        </div>
+                        <div className="text-3xl">⚠️</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Low Severity */}
+                  {lowSeverity > 0 && (
+                    <div className="bg-white border-l-4 border-blue-500 rounded-lg p-4 shadow-sm">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-gray-600 text-sm font-medium">
+                            Info
+                          </p>
+                          <p className="text-3xl font-bold text-blue-600 mt-1">
+                            {lowSeverity}
+                          </p>
+                        </div>
+                        <div className="text-3xl">ℹ️</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* No issues case */}
+                  {totalWarnings === 0 && (
+                    <div className="md:col-span-3 bg-white border-l-4 border-green-500 rounded-lg p-4 shadow-sm">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-gray-600 text-sm font-medium">
+                            All Clear
+                          </p>
+                          <p className="text-lg font-semibold text-green-600 mt-1">
+                            No issues detected
+                          </p>
+                        </div>
+                        <div className="text-3xl">✅</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         <div className="space-y-4">
           {changesets.map((changeset) => (
             <ChangesetCard
@@ -303,8 +411,15 @@ const ChangesetCard: React.FC<{
   const [changeType, setChangeType] = useState(changeset.changeType);
   const [editedXml, setEditedXml] = useState(changeset.xmlContent);
   const [editedSql, setEditedSql] = useState(changeset.sqlFileContent || "");
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const handleSaveEdit = async () => {
+    setSaveLoading(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+
     try {
       const result = await liquibaseAPI.updateChangeset(changeset.id, {
         comment: editedComment || null,
@@ -314,11 +429,30 @@ const ChangesetCard: React.FC<{
       });
       if (result && !result.error) {
         onUpdate(result.changeset);
-        setIsEditing(false);
+        setSaveSuccess(true);
+        setTimeout(() => {
+          setIsEditing(false);
+          setSaveSuccess(false);
+        }, 1000);
+      } else {
+        setSaveError(result?.error || "Failed to save changes");
       }
-    } catch (err) {
+    } catch (err: any) {
+      setSaveError(err.message || "Failed to save changes");
       console.error("Failed to update changeset", err);
+    } finally {
+      setSaveLoading(false);
     }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedComment(changeset.comment || "");
+    setChangeType(changeset.changeType);
+    setEditedXml(changeset.xmlContent);
+    setEditedSql(changeset.sqlFileContent || "");
+    setSaveError(null);
+    setSaveSuccess(false);
   };
 
   if (isEditing) {
@@ -395,22 +529,30 @@ const ChangesetCard: React.FC<{
             </div>
           )}
 
+          {saveError && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
+              {saveError}
+            </div>
+          )}
+
+          {saveSuccess && (
+            <div className="p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">
+              ✓ Changes saved successfully
+            </div>
+          )}
+
           <div className="flex gap-4">
             <button
               onClick={handleSaveEdit}
-              className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 font-medium"
+              disabled={saveLoading}
+              className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:bg-gray-400 font-medium transition"
             >
-              Save Changes
+              {saveLoading ? "Saving..." : "Save Changes"}
             </button>
             <button
-              onClick={() => {
-                setIsEditing(false);
-                setEditedComment(changeset.comment || "");
-                setChangeType(changeset.changeType);
-                setEditedXml(changeset.xmlContent);
-                setEditedSql(changeset.sqlFileContent || "");
-              }}
-              className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-400 font-medium"
+              onClick={handleCancelEdit}
+              disabled={saveLoading}
+              className="flex-1 bg-gray-300 text-gray-800 py-2 px-4 rounded-md hover:bg-gray-400 disabled:bg-gray-300 font-medium transition"
             >
               Cancel
             </button>
@@ -428,6 +570,11 @@ const ChangesetCard: React.FC<{
             <h3 className="text-lg font-semibold text-gray-900">
               {changeset.id}
             </h3>
+            {changeset.edited && (
+              <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-orange-100 text-orange-800">
+                Edited
+              </span>
+            )}
             {changeset.reviews && changeset.reviews.length > 0 && (
               <span
                 className={`px-2 py-0.5 text-xs font-medium rounded-full ${
@@ -450,9 +597,6 @@ const ChangesetCard: React.FC<{
             <p className="text-sm text-blue-600 mt-1">
               Comment: {changeset.comment}
             </p>
-          )}
-          {changeset.edited && (
-            <p className="text-xs text-orange-600 mt-1 font-medium">• Edited</p>
           )}
         </div>
         <div className="flex gap-2">

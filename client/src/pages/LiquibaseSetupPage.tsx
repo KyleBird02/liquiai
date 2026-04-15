@@ -19,6 +19,22 @@ const LiquibaseSetupPage: React.FC = () => {
 
   useEffect(() => {
     const fetchConfig = async () => {
+      // First try to load existing Phase 2 session so we don't lose data
+      try {
+        const session = await liquibaseAPI.getSession();
+        if (session && session.author) {
+          setFormData({
+            author: session.author || "",
+            targetApplication: session.targetApplication || "",
+            targetSprint: session.targetSprint || "",
+            branchName: (session.branchName || "").replace(/^OCDEV-/, ""),
+          });
+          return;
+        }
+      } catch (err) {
+        // Fall back to schema API config if no session
+      }
+
       const cfg = await schemaAPI.getConfig();
       if (cfg && cfg.author) {
         setFormData((prev) => ({ ...prev, author: cfg.author }));

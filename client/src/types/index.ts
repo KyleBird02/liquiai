@@ -145,6 +145,8 @@ export interface ProposedChange {
   validationResult?: ValidationResult;
   createdAt: string;
   appliedLocally?: boolean;
+  sqlPreview?: string;
+  edited?: boolean;
 }
 
 export interface CreateTablePayload {
@@ -225,4 +227,6 @@ export interface GitHubFileChange {
   path: string;
   content: string;
   message: string;
+  fileType?: "changeset-xml" | "sql-file"; // Type of file being previewed
+  newContent?: string; // For changeset.xml, only the new changesets being added
 }

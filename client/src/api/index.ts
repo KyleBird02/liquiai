@@ -199,6 +199,32 @@ export const changesAPI = {
     }
   },
 
+  /**
+   * Get SQL preview for a change
+   */
+  async getSqlPreview(changeId: string) {
+    try {
+      const response = await apiClient.get(`/changes/${changeId}/sql-preview`);
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Update SQL preview for a change
+   */
+  async updateSql(changeId: string, sqlPreview: string) {
+    try {
+      const response = await apiClient.put(`/changes/${changeId}/sql`, {
+        sqlPreview,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
   async revertChange(changeId: string, connectionString?: string) {
     try {
       const body: any = {};
@@ -249,6 +275,22 @@ export const changesAPI = {
   async clearAll() {
     try {
       const response = await apiClient.post("/changes/clear");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Ask AI Assistant to create schema based on user description
+   */
+  async askAIAssistant(
+    conversationHistory: Array<{ role: "user" | "assistant"; content: string }>,
+  ) {
+    try {
+      const response = await apiClient.post("/changes/ai-assistant", {
+        conversationHistory,
+      });
       return response.data;
     } catch (error) {
       return handleError(error as AxiosError);

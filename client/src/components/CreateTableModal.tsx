@@ -49,10 +49,9 @@ export const CreateTableModal: React.FC<CreateTableModalProps> = ({
     0: "primary",
   });
   const [columnFKRefs, setColumnFKRefs] = useState<
-    Record<number, { table?: string; column?: string }>
+    Record<number, { table?: string; column?: string; onDelete?: string }>
   >({});
 
-  // Get all available tables for FK selection
   const availableTables = [...(snapshot?.tables || []), ...proposedTables].map(
     (t) => ({ name: t.name, schema: t.schema }),
   );
@@ -68,7 +67,7 @@ export const CreateTableModal: React.FC<CreateTableModalProps> = ({
     const newIndex = columns.length;
     setColumns([...columns, newColumn]);
     setColumnKeyTypes({ ...columnKeyTypes, [newIndex]: "none" });
-    setColumnFKRefs({ ...columnFKRefs, [newIndex]: {} });
+    setColumnFKRefs({ ...columnFKRefs, [newIndex]: { onDelete: "RESTRICT" } });
   };
 
   const handleRemoveColumn = (index: number) => {
@@ -105,7 +104,6 @@ export const CreateTableModal: React.FC<CreateTableModalProps> = ({
     newColumns[index].isPrimaryKey = keyType === "primary";
     setColumns(newColumns);
 
-    // If switching to FK, clear existing PK status
     if (keyType === "foreign") {
       newColumns[index].isPrimaryKey = false;
       setColumns(newColumns);
@@ -123,6 +121,13 @@ export const CreateTableModal: React.FC<CreateTableModalProps> = ({
     setColumnFKRefs({
       ...columnFKRefs,
       [index]: { ...columnFKRefs[index], column: columnName },
+    });
+  };
+
+  const handleFKConstraintChange = (index: number, constraint: string) => {
+    setColumnFKRefs({
+      ...columnFKRefs,
+      [index]: { ...columnFKRefs[index], onDelete: constraint },
     });
   };
 
@@ -152,17 +157,20 @@ export const CreateTableModal: React.FC<CreateTableModalProps> = ({
     setError("");
 
     try {
-      // Build foreign keys from column FK references
       const constraintForeignKeys: ForeignKeyDefinition[] = [];
+      const updatedColumns = [...columns];
+
       Object.entries(columnFKRefs).forEach(([indexStr, ref]) => {
         const index = parseInt(indexStr);
         if (columnKeyTypes[index] === "foreign" && ref.table && ref.column) {
+          updatedColumns[index].isForeignKey = true;
+
           constraintForeignKeys.push({
             constraintName: `fk_${tableName}_${columns[index].name}`,
             column: columns[index].name,
             referencedTable: ref.table,
             referencedColumn: ref.column,
-            onDelete: "RESTRICT",
+            onDelete: ref.onDelete || "RESTRICT",
           });
         }
       });
@@ -170,8 +178,10 @@ export const CreateTableModal: React.FC<CreateTableModalProps> = ({
       const payload: CreateTablePayload = {
         tableName,
         schema,
-        columns: mode === "form" ? columns : [],
-        primaryKey: columns.filter((c) => c.isPrimaryKey).map((c) => c.name),
+        columns: mode === "form" ? updatedColumns : [],
+        primaryKey: updatedColumns
+          .filter((c) => c.isPrimaryKey)
+          .map((c) => c.name),
         foreignKeys:
           constraintForeignKeys.length > 0 ? constraintForeignKeys : undefined,
       };
@@ -513,6 +523,32 @@ export const CreateTableModal: React.FC<CreateTableModalProps> = ({
                                         {colName}
                                       </option>
                                     ))}
+                                  </select>
+
+                                  <label className="block text-sm font-medium text-gray-700 mt-3">
+                                    On Delete Constraint
+                                  </label>
+                                  <select
+                                    value={
+                                      columnFKRefs[idx]?.onDelete || "RESTRICT"
+                                    }
+                                    onChange={(e) =>
+                                      handleFKConstraintChange(
+                                        idx,
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  >
+                                    <option value="RESTRICT">
+                                      RESTRICT (Default)
+                                    </option>
+                                    <option value="CASCADE">CASCADE</option>
+                                    <option value="SET NULL">SET NULL</option>
+                                    <option value="SET DEFAULT">
+                                      SET DEFAULT
+                                    </option>
+                                    <option value="NO ACTION">NO ACTION</option>
                                   </select>
                                 </>
                               )}

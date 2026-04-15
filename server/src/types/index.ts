@@ -90,7 +90,8 @@ export type ChangeType =
   | "ALTER_TABLE"
   | "DROP_TABLE"
   | "ADD_INDEX"
-  | "DROP_INDEX";
+  | "DROP_INDEX"
+  | "EXECUTE_SQL";
 
 export interface ProposedChange {
   id: string;
@@ -100,6 +101,8 @@ export interface ProposedChange {
   validationResult?: ValidationResult;
   createdAt: string;
   appliedLocally?: boolean;
+  sqlPreview?: string;
+  edited?: boolean;
 }
 
 export interface CreateTablePayload {
@@ -223,6 +226,7 @@ export interface GitHubPRInput {
 
 export interface GitHubFileChange {
   path: string; // relative path in repo
-  content: string;
   message: string; // commit message for this file
+  fileType?: "changeset-xml" | "sql-file"; // Type of file
+  newContent?: string; // For changeset.xml, only the new changesets being added
 }

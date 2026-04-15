@@ -31,15 +31,32 @@ class SessionManager {
     branchName?: string,
   ): Phase2Session {
     const sessionId = this.getSessionId();
+    const existing = this.sessions.get(sessionId);
 
-    const session: Phase2Session = {
-      author,
-      targetApplication,
-      targetSprint,
-      branchName,
-      proposedChanges: [],
-      changesets: [],
-    };
+    // If changing application or sprint, we should clear changesets because they belong to the old target
+    const clearChangesets =
+      existing &&
+      (existing.targetApplication !== targetApplication ||
+        existing.targetSprint !== targetSprint);
+
+    const session: Phase2Session = existing
+      ? {
+          ...existing,
+          author,
+          targetApplication,
+          targetSprint,
+          branchName,
+          changesets: clearChangesets ? [] : existing.changesets,
+          proposedChanges: clearChangesets ? [] : existing.proposedChanges,
+        }
+      : {
+          author,
+          targetApplication,
+          targetSprint,
+          branchName,
+          proposedChanges: [],
+          changesets: [],
+        };
 
     this.sessions.set(sessionId, session);
     return session;
