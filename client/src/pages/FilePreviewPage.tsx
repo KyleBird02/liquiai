@@ -75,7 +75,6 @@ const FilePreviewPage: React.FC = () => {
           Review all files that will be committed to the Liquibase repository
         </p>
 
-        {/* Summary */}
         <div className="mb-8 bg-white rounded-lg shadow-md p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Summary</h2>
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -106,9 +105,7 @@ const FilePreviewPage: React.FC = () => {
           </div>
         </div>
 
-        {/* File selector and preview */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* File list */}
           <div className="lg:col-span-1 bg-white rounded-lg shadow-md p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
               Files ({files.length})
@@ -131,7 +128,6 @@ const FilePreviewPage: React.FC = () => {
             </div>
           </div>
 
-          {/* File preview */}
           {currentFile && (
             <div className="lg:col-span-3 bg-white rounded-lg shadow-md p-6 flex flex-col">
               <div className="mb-4 pb-4 border-b border-gray-200">

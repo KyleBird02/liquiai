@@ -5,7 +5,7 @@ import { AlertProvider } from "./hooks/index";
 import { SchemaPage } from "./pages/SchemaPage";
 import { ChangesPage } from "./pages/ChangesPage/ChangesPage";
 import LiquibaseSetupPage from "./pages/LiquibaseSetupPage";
-import ChangesetReviewPage from "./pages/ChangesetReviewPage";
+import ChangesetReviewPage from "./pages/ChangesetReviewPage/ChangesetReviewPage";
 import FilePreviewPage from "./pages/FilePreviewPage";
 import PRCreationPage from "./pages/PRCreationPage";
 import "./index.css";

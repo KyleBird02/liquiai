@@ -292,11 +292,9 @@ router.post("/:id/revert", async (req: Request, res: Response) => {
         .status(501)
         .json({ error: `Reverting a DROP TABLE is not supported directly.` });
     } else if (change.type === "EXECUTE_SQL") {
-      return res
-        .status(501)
-        .json({
-          error: `Reverting raw SQL is not supported. Manual intervention may be required.`,
-        });
+      return res.status(501).json({
+        error: `Reverting raw SQL is not supported. Manual intervention may be required.`,
+      });
     } else {
       return res
         .status(501)
@@ -416,13 +414,20 @@ router.post("/ai-assistant", async (req: Request, res: Response) => {
 When the user describes what they want, you should:
 1. Parse their description and understand the tables and columns they want
 2. If anything is unclear, ask clarifying questions WRAPPED IN TAGS: <clarifying_question>Your question here?</clarifying_question>
-3. Once you have all the information, respond with a JSON object containing the tables to create
+3. Once you have all the information, respond with a JSON object containing ALL the tables to create in a single response
 
 IMPORTANT TAGGING RULES:
 - When asking a question: Wrap your question with <clarifying_question>question text</clarifying_question>
-- When creating tables that have dependencies: Include "continueNeeded": true in the JSON response
-- When all tables have been specified and created: Add <all_tables_complete></all_tables_complete> at the end of your response
-- Use "continueNeeded": true when you're providing ONLY the first batch of tables (e.g., users table) and more dependent tables are needed (e.g., posts table that references users)
+- ALWAYS respond with ALL tables in a single JSON response - never split across multiple responses
+- ALWAYS set "continueNeeded": false - this ensures the user is not prompted to click continue
+- ALWAYS include <all_tables_complete></all_tables_complete> at the end of your response when creating tables
+
+FOREIGN KEY RULES:
+- For foreign keys, use the format: {"constraintName": "fk_table_column", "column": "local_column", "referencedTable": "referenced_table", "referencedColumn": "referenced_column", "onDelete": "CASCADE|SET NULL|RESTRICT|NO ACTION"}
+- constraintName should follow pattern: fk_<table>_<column>
+- onDelete must be one of: CASCADE, SET NULL, RESTRICT, or NO ACTION
+- Create the referenced table BEFORE the table that references it
+- If a user describes relationships, automatically create the appropriate foreign keys
 
 When responding with table definitions, use this exact JSON format:
 {
@@ -432,9 +437,20 @@ When responding with table definitions, use this exact JSON format:
     {
       "tableName": "table_name",
       "schema": "public",
-      "columns": [{"name": "id", "type": "SERIAL", "nullable": false, "defaultValue": null, "isPrimaryKey": true}],
+      "columns": [
+        {"name": "id", "type": "SERIAL", "nullable": false, "defaultValue": null, "isPrimaryKey": true},
+        {"name": "name", "type": "VARCHAR(255)", "nullable": false, "defaultValue": null, "isPrimaryKey": false}
+      ],
       "primaryKey": ["id"],
-      "foreignKeys": []
+      "foreignKeys": [
+        {
+          "constraintName": "fk_posts_user_id",
+          "column": "user_id",
+          "referencedTable": "users",
+          "referencedColumn": "id",
+          "onDelete": "CASCADE"
+        }
+      ]
     }
   ]
 }
@@ -459,8 +475,10 @@ FORMAT FOR MODIFYING EXISTING TABLES (ALTER):
 }
 
 EXAMPLES:
-- If user asks for "users and posts tables", respond with users table only and set continueNeeded: true, then on next step provide posts table with continueNeeded: false and <all_tables_complete></all_tables_complete>
-- If user asks for a single table, set continueNeeded: false and include <all_tables_complete></all_tables_complete>
+- If user asks for "users and posts tables", create BOTH tables in a single response with "continueNeeded": false and <all_tables_complete></all_tables_complete>
+- If user asks for a single table, set "continueNeeded": false and include <all_tables_complete></all_tables_complete>
+- Example with relationships: User says "Create users table with id and name, and posts table with id, title, and a foreign key to users". Create both tables in one response, with posts.foreignKeys containing the reference to users.
+- Handle all dependencies, relationships, and table creation in one response
 - If you need clarification, wrap your entire question in <clarifying_question> tags`,
     };
 

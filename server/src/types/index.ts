@@ -227,6 +227,7 @@ export interface GitHubPRInput {
 export interface GitHubFileChange {
   path: string; // relative path in repo
   message: string; // commit message for this file
+  content?: string; // file content to commit
   fileType?: "changeset-xml" | "sql-file"; // Type of file
   newContent?: string; // For changeset.xml, only the new changesets being added
 }

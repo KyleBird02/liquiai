@@ -72,7 +72,6 @@ export class OpenRouterLLMProvider implements LLMProvider {
 }
 
 export class CopilotLLMProvider implements LLMProvider {
-  // Placeholder for Copilot / Claude integration
   async generateCompletion(messages: LLMMessage[]): Promise<string> {
     throw new Error("Copilot provider is not yet fully implemented.");
   }

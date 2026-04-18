@@ -351,6 +351,7 @@ export const liquibaseAPI = {
       changeType?: "xml" | "sql";
       xmlContent?: string;
       sqlFileContent?: string | null;
+      sqlFilePath?: string | null;
     },
   ) {
     try {

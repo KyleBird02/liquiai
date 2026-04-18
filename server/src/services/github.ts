@@ -227,7 +227,7 @@ class GitHubService {
         const blobResponse = await this.octokit.git.createBlob({
           owner: this.owner,
           repo: this.repo,
-          content: file.content,
+          content: file.content || "",
           encoding: "utf-8",
         });
 

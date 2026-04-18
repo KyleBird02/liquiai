@@ -2,6 +2,8 @@ import express, { Router, Request, Response } from "express";
 import { sessionManager } from "../services/session";
 import { githubService } from "../services/github";
 import { LLMFactory } from "../services/llm";
+import { formatWarningsForPR } from "../services/warnings";
+import { liquibaseGenerator } from "../services/liquibase";
 import { ChangesetBatch, GitHubFileChange } from "../types/index";
 
 const router = Router();
@@ -61,9 +63,7 @@ router.get("/preview", async (req: Request, res: Response) => {
       });
     }
 
-    const newChangesetXmls = session.changesets
-      .filter((cs) => cs.changeType === "xml")
-      .map((cs) => cs.xmlContent);
+    const newChangesetXmls = session.changesets.map((cs) => cs.xmlContent);
 
     // Combine new changesets into a preview snippet
     const newChangesetPreview = newChangesetXmls.join("\n\n");
@@ -73,6 +73,7 @@ router.get("/preview", async (req: Request, res: Response) => {
       {
         path: `${session.targetApplication}/changeset.xml`,
         newContent: newChangesetPreview,
+        content: newChangesetPreview,
         fileType: "changeset-xml",
         message: `Update changeset.xml - Add ${session.changesets.length} new changesets`,
       },
@@ -87,6 +88,7 @@ router.get("/preview", async (req: Request, res: Response) => {
       ) {
         files.push({
           path: changeset.sqlFilePath,
+          content: changeset.sqlFileContent,
           fileType: "sql-file",
           message: `Add migration: ${changeset.id}`,
         });
@@ -188,11 +190,25 @@ router.post("/create-pr", async (req: Request, res: Response) => {
     // Fetch current changeset.xml from GitHub
     const branch = session.branchName || `OCDEV-${session.author}`;
 
+    const currentChangesetXml = await githubService.fetchChangesetXml(
+      session.targetApplication,
+    );
+
+    const newChangesetsXmlBlocks = session.changesets.map(
+      (cs) => cs.xmlContent,
+    );
+
+    const appendedChangesetXml = liquibaseGenerator.appendToChangesetXml(
+      currentChangesetXml,
+      newChangesetsXmlBlocks,
+    );
+
     // Prepare all file changes
     const files: GitHubFileChange[] = [
       {
         path: `${session.targetApplication}/changeset.xml`,
         message: `Update changeset.xml - Add ${session.changesets.length} new changesets`,
+        content: appendedChangesetXml,
       },
     ];
 
@@ -206,16 +222,20 @@ router.post("/create-pr", async (req: Request, res: Response) => {
         files.push({
           path: changeset.sqlFilePath,
           message: `Add SQL migration: ${changeset.id}`,
+          content: changeset.sqlFileContent,
         });
       }
     }
 
     // Create PR via GitHub API
-    // We pass branchName; createPullRequest internally creates it if it doesn't exist
+    // Append warnings section to description
+    const warningsSection = formatWarningsForPR(session.changesets);
+    const finalDescription = prDescription + warningsSection;
+
     const pr = await githubService.createPullRequest({
       branch,
       title: prTitle,
-      description: prDescription,
+      description: finalDescription,
       files,
     });
 
@@ -228,7 +248,7 @@ router.post("/create-pr", async (req: Request, res: Response) => {
       targetApplication: session.targetApplication,
       targetSprint: session.targetSprint,
       prTitle,
-      prDescription,
+      prDescription: finalDescription,
     };
     sessionManager.setBatch(batch);
 

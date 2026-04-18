@@ -101,7 +101,6 @@ const LiquibaseSetupPage: React.FC = () => {
         return;
       }
 
-      // Navigate to the changeset review page
       navigate("/liquibase/changesets");
     } catch (err) {
       setError("Failed to initialize session");
@@ -176,7 +175,7 @@ const LiquibaseSetupPage: React.FC = () => {
                     key={app}
                     className="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-blue-100/50"
                     onMouseDown={(e) => {
-                      e.preventDefault(); // Prevents input blur before click
+                      e.preventDefault();
                       setFormData((prev) => ({
                         ...prev,
                         targetApplication: app,
@@ -222,7 +221,7 @@ const LiquibaseSetupPage: React.FC = () => {
                     key={sprint}
                     className="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-blue-100/50"
                     onMouseDown={(e) => {
-                      e.preventDefault(); // Prevents input blur before click
+                      e.preventDefault();
                       setFormData((prev) => ({
                         ...prev,
                         targetSprint: sprint,
