@@ -19,6 +19,7 @@ const PRCreationPage: React.FC = () => {
 
   useEffect(() => {
     loadChangesets();
+    void githubAPI.preparePRAppendix();
   }, []);
 
   const loadChangesets = async () => {

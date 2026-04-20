@@ -564,6 +564,15 @@ export const githubAPI = {
     }
   },
 
+  async preparePRAppendix() {
+    try {
+      const response = await apiClient.post("/github/prepare-pr-appendix");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
   /**
    * Get GitHub API rate limit status
    */

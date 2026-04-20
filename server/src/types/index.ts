@@ -227,6 +227,10 @@ export interface Phase2Session {
   branchName?: string; // e.g. "OCDEV-admin-feature"
   proposedChanges: ProposedChange[]; // from Phase 1
   changesets: ChangesetDefinition[];
+  prReviewerAppendix?: {
+    digest: string;
+    markdown: string;
+  };
   batch?: ChangesetBatch;
 }
 

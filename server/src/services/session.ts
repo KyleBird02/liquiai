@@ -89,6 +89,7 @@ class SessionManager {
     const session = this.getSession();
 
     session.proposedChanges.push(...changes);
+    session.prReviewerAppendix = undefined;
     this.sessions.set(sessionId, session);
 
     return session;
@@ -102,6 +103,7 @@ class SessionManager {
     const session = this.getSession();
 
     session.proposedChanges = [...changes];
+    session.prReviewerAppendix = undefined;
     this.sessions.set(sessionId, session);
 
     return session;
@@ -115,6 +117,7 @@ class SessionManager {
     const session = this.getSession();
 
     session.changesets.push(...changesets);
+    session.prReviewerAppendix = undefined;
     this.sessions.set(sessionId, session);
 
     return session;
@@ -137,6 +140,7 @@ class SessionManager {
         ...updates,
         edited: true,
       };
+      session.prReviewerAppendix = undefined;
     }
 
     this.sessions.set(sessionId, session);
@@ -151,6 +155,7 @@ class SessionManager {
     const session = this.getSession();
 
     session.changesets = [...changesets];
+    session.prReviewerAppendix = undefined;
     this.sessions.set(sessionId, session);
 
     return session;
