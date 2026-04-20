@@ -85,7 +85,7 @@ export const SelectionStep: React.FC<SelectionStepProps> = ({
                 No proposed changes found from Phase 1
               </p>
               <button
-                onClick={() => navigate("/changes")}
+                onClick={() => navigate("/schema")}
                 className="inline-block bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700"
               >
                 Go Back to Create Changes
