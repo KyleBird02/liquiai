@@ -10,6 +10,7 @@ interface ReviewStepProps {
   error: string | null;
   onBack: () => void;
   onAggregate: () => Promise<void>;
+  onReorder: (orderedIds: string[]) => Promise<void>;
   onUpdate: (updated: ChangesetDefinition) => void;
 }
 
@@ -20,9 +21,25 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
   error,
   onBack,
   onAggregate,
+  onReorder,
   onUpdate,
 }) => {
   const navigate = useNavigate();
+  const [dragIndex, setDragIndex] = React.useState<number | null>(null);
+
+  const handleDrop = async (targetIndex: number) => {
+    if (dragIndex === null || dragIndex === targetIndex) {
+      setDragIndex(null);
+      return;
+    }
+
+    const reordered = [...changesets];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(targetIndex, 0, moved);
+
+    setDragIndex(null);
+    await onReorder(reordered.map((c) => c.id));
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -141,14 +158,30 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
         )}
 
         <div className="space-y-4">
-          {changesets.map((changeset) => (
-            <ChangesetCard
+          {changesets.map((changeset, index) => (
+            <div
               key={changeset.id}
-              changeset={changeset}
-              onUpdate={(updated) => {
-                onUpdate(updated);
-              }}
-            />
+              draggable
+              onDragStart={() => setDragIndex(index)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => void handleDrop(index)}
+              className={`rounded-lg transition ${
+                dragIndex === index
+                  ? "opacity-60 ring-2 ring-blue-300"
+                  : "opacity-100"
+              }`}
+              title="Drag to reorder"
+            >
+              <div className="text-xs text-gray-500 mb-1 ml-2">
+                Drag to reorder
+              </div>
+              <ChangesetCard
+                changeset={changeset}
+                onUpdate={(updated) => {
+                  onUpdate(updated);
+                }}
+              />
+            </div>
           ))}
         </div>
 

@@ -41,6 +41,112 @@ export const SchemaPage: React.FC = () => {
   const [proposedChanges, setProposedChanges] = useState<ProposedChange[]>([]);
   const [proposedTables, setProposedTables] = useState<TableDefinition[]>([]);
 
+  const withForeignKeyFlags = (table: TableDefinition): TableDefinition => {
+    const fkColumns = new Set(table.foreignKeys.map((fk) => fk.column));
+    return {
+      ...table,
+      columns: table.columns.map((column) => ({
+        ...column,
+        isForeignKey: column.isForeignKey || fkColumns.has(column.name),
+      })),
+    };
+  };
+
+  const getAllDisplayTables = (): TableDefinition[] => {
+    const tableMap = new Map<string, TableDefinition>();
+
+    (snapshot?.tables || []).forEach((table) => {
+      tableMap.set(table.name, withForeignKeyFlags(table));
+    });
+
+    proposedTables.forEach((table) => {
+      tableMap.set(table.name, withForeignKeyFlags(table));
+    });
+
+    const pendingAlters = proposedChanges.filter(
+      (c) => c.type === "ALTER_TABLE",
+    );
+    pendingAlters.forEach((change) => {
+      const payload = change.payload as AlterTablePayload;
+      const existing = tableMap.get(payload.tableName);
+      if (!existing) return;
+
+      const displayTable: TableDefinition = {
+        ...existing,
+        columns: [...existing.columns],
+        foreignKeys: [...existing.foreignKeys],
+      };
+
+      if (payload.addedColumns) {
+        payload.addedColumns.forEach((ac: any) => {
+          displayTable.columns.push({ ...ac, _isProposed: true });
+        });
+      }
+
+      if (payload.removedColumns) {
+        const removedColumnNames = new Set(
+          payload.removedColumns.map((rc: any) => rc.name),
+        );
+
+        payload.removedColumns.forEach((rc: any) => {
+          const idx = displayTable.columns.findIndex((c) => c.name === rc.name);
+          if (idx >= 0) {
+            displayTable.columns[idx] = {
+              ...displayTable.columns[idx],
+              _isPendingDelete: true,
+            };
+          }
+        });
+
+        displayTable.foreignKeys = displayTable.foreignKeys.filter(
+          (fk) => !removedColumnNames.has(fk.column),
+        );
+      }
+
+      if (payload.modifiedColumns) {
+        payload.modifiedColumns.forEach((mc: any) => {
+          const idx = displayTable.columns.findIndex(
+            (c) => c.name === mc.columnName,
+          );
+          if (idx >= 0) {
+            displayTable.columns[idx] = {
+              ...displayTable.columns[idx],
+              ...mc.newDefinition,
+              _isProposedEdit: true,
+            };
+          }
+        });
+      }
+
+      if (payload.addedForeignKeys) {
+        payload.addedForeignKeys.forEach((fk: any) => {
+          if (
+            !displayTable.foreignKeys.some(
+              (existingFk) => existingFk.constraintName === fk.constraintName,
+            )
+          ) {
+            displayTable.foreignKeys.push(fk);
+          }
+        });
+      }
+
+      if (payload.removedForeignKeys) {
+        const removedConstraintNames = new Set(
+          payload.removedForeignKeys.map((fk: any) => fk.constraintName),
+        );
+        displayTable.foreignKeys = displayTable.foreignKeys.filter(
+          (fk) => !removedConstraintNames.has(fk.constraintName),
+        );
+      }
+
+      tableMap.set(payload.tableName, withForeignKeyFlags(displayTable));
+    });
+
+    return Array.from(tableMap.values()).map((table) =>
+      withForeignKeyFlags(table),
+    );
+  };
+
   // Load configuration on mount
   useEffect(() => {
     schemaAPI.getConfig().then((cfg) => {
@@ -78,7 +184,8 @@ export const SchemaPage: React.FC = () => {
             indexes: [],
             foreignKeys: (c.payload as any).foreignKeys || [],
             primaryKey: (c.payload as any).primaryKey || [],
-          }));
+          }))
+          .map((table: TableDefinition) => withForeignKeyFlags(table));
         setProposedTables(proposed);
       }
     } catch (err) {
@@ -247,7 +354,12 @@ export const SchemaPage: React.FC = () => {
     const payload: AlterTablePayload = {
       tableName: selectedTable,
       schema,
-      addedColumns: [newColumn],
+      addedColumns: [
+        {
+          ...newColumn,
+          isForeignKey: newColumn.isForeignKey || !!foreignKey,
+        },
+      ],
       addedForeignKeys: foreignKey ? [foreignKey] : undefined,
     };
 
@@ -342,7 +454,13 @@ export const SchemaPage: React.FC = () => {
       if (result && "error" in result) {
         setError(result.error);
       } else if (result) {
-        setSnapshot(result);
+        const normalizedSnapshot: SchemaSnapshot = {
+          ...result,
+          tables: result.tables.map((table: TableDefinition) =>
+            withForeignKeyFlags(table),
+          ),
+        };
+        setSnapshot(normalizedSnapshot);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load schema");
@@ -352,103 +470,64 @@ export const SchemaPage: React.FC = () => {
   };
 
   const getDisplayTable = (): TableDefinition => {
-    let baseTable = snapshot?.tables.find((t) => t.name === selectedTable) ||
-      proposedTables.find((t) => t.name === selectedTable) || {
-        name: "",
-        schema: "",
-        columns: [],
-        indexes: [],
-        foreignKeys: [],
-        primaryKey: [],
-      };
+    const allDisplayTables = getAllDisplayTables();
+    const baseTable = allDisplayTables.find(
+      (t) => t.name === selectedTable,
+    ) || {
+      name: "",
+      schema: "",
+      columns: [],
+      indexes: [],
+      foreignKeys: [],
+      primaryKey: [],
+    };
 
     if (!selectedTable) return baseTable;
 
-    // Deep copy to apply modifications non-destructively
-    const displayTable = {
-      ...baseTable,
-      columns: [...baseTable.columns],
-      foreignKeys: [...baseTable.foreignKeys],
-    };
-
-    // Apply pending ALTER_TABLE changes
-    const pendingAlters = proposedChanges.filter(
-      (c) => c.type === "ALTER_TABLE" && c.payload.tableName === selectedTable,
-    );
-
-    pendingAlters.forEach((change) => {
-      if (change.payload.addedColumns) {
-        change.payload.addedColumns.forEach((ac: any) => {
-          displayTable.columns.push({ ...ac, _isProposed: true });
-        });
-      }
-      if (change.payload.removedColumns) {
-        change.payload.removedColumns.forEach((rc: any) => {
-          const idx = displayTable.columns.findIndex((c) => c.name === rc.name);
-          if (idx >= 0)
-            displayTable.columns[idx] = {
-              ...displayTable.columns[idx],
-              _isPendingDelete: true,
-            };
-        });
-      }
-      if (change.payload.modifiedColumns) {
-        change.payload.modifiedColumns.forEach((mc: any) => {
-          const idx = displayTable.columns.findIndex(
-            (c) => c.name === mc.columnName,
-          );
-          if (idx >= 0) {
-            displayTable.columns[idx] = {
-              ...displayTable.columns[idx],
-              ...mc.newDefinition,
-              _isProposedEdit: true,
-            };
-          }
-        });
-      }
-      if (change.payload.addedForeignKeys) {
-        change.payload.addedForeignKeys.forEach((fk: any) => {
-          displayTable.foreignKeys.push(fk);
-        });
-      }
-    });
-
-    return displayTable;
+    return withForeignKeyFlags(baseTable);
   };
 
   // Get dependencies for selected table
   const getTableWithDependencies = (): TableDefinition[] => {
     if (!selectedTable) return [];
 
-    const displayTable = getDisplayTable();
-    if (displayTable.name === "") return [];
+    const allDisplayTables = getAllDisplayTables();
+
+    const displayTable = allDisplayTables.find((t) => t.name === selectedTable);
+    if (!displayTable) return [];
 
     const selected = displayTable;
 
     // Get tables that this table references (outgoing FKs)
     const referencedTables = new Set<string>();
     selected.foreignKeys.forEach((fk) => {
-      referencedTables.add(fk.referencedTable);
+      const refTableName = fk.referencedTable.includes(".")
+        ? fk.referencedTable.split(".").pop() || fk.referencedTable
+        : fk.referencedTable;
+      referencedTables.add(refTableName);
     });
 
     // Get tables that reference this table (incoming FKs)
     const dependentTables = new Set<string>();
-    snapshot?.tables.forEach((table) => {
+    allDisplayTables.forEach((table) => {
       table.foreignKeys.forEach((fk) => {
-        if (fk.referencedTable === selectedTable) {
+        const fkRefTable = fk.referencedTable.includes(".")
+          ? fk.referencedTable.split(".").pop() || fk.referencedTable
+          : fk.referencedTable;
+        if (fkRefTable === selectedTable) {
           dependentTables.add(table.name);
         }
       });
     });
 
     // Return selected table + dependencies
-    const result = [selected];
+    const result: TableDefinition[] = [selected];
     referencedTables.forEach((name) => {
-      const table = snapshot?.tables.find((t) => t.name === name);
+      const table = allDisplayTables.find((t) => t.name === name);
       if (table) result.push(table);
     });
     dependentTables.forEach((name) => {
-      const table = snapshot?.tables.find((t) => t.name === name);
+      const table = allDisplayTables.find((t) => t.name === name);
       if (table && !result.find((t) => t.name === name)) result.push(table);
     });
 

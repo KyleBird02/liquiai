@@ -13,6 +13,10 @@ const ChangesetReviewPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"select" | "review">("select");
+  const [showSqlMergeModal, setShowSqlMergeModal] = useState(false);
+  const [pendingAggregateId, setPendingAggregateId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     loadSession();
@@ -54,6 +58,41 @@ const ChangesetReviewPage: React.FC = () => {
       setSelectedChanges((prev) => [...prev, changeId]);
     } else {
       setSelectedChanges((prev) => prev.filter((id) => id !== changeId));
+    }
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedChanges.length === proposedChanges.length) {
+      setSelectedChanges([]);
+      return;
+    }
+
+    setSelectedChanges(proposedChanges.map((c) => c.id));
+  };
+
+  const handleReorderChangesets = async (orderedIds: string[]) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result =
+        await liquibaseAPI.reorderAndRenumberChangesets(orderedIds);
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+
+      if (result?.changesets) {
+        setChangesets(result.changesets);
+      }
+      if (result?.startId) {
+        setStartId(result.startId);
+      }
+    } catch (err: any) {
+      setError(
+        "Failed to reorder changesets: " + (err.message || "Unknown error"),
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -128,9 +167,22 @@ const ChangesetReviewPage: React.FC = () => {
 
     const finalAggregateId = minId || changesets[0]?.id || "aggregated-1";
 
+    setPendingAggregateId(finalAggregateId);
+    setShowSqlMergeModal(true);
+  };
+
+  const runAggregate = async (sqlMergeMode: "single" | "multiple") => {
+    if (!pendingAggregateId) {
+      setShowSqlMergeModal(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const result = await liquibaseAPI.aggregateChangesets(finalAggregateId);
+      const result = await liquibaseAPI.aggregateChangesets(
+        pendingAggregateId,
+        sqlMergeMode,
+      );
       if (result.error) {
         setError("Failed to aggregate: " + result.error);
       } else {
@@ -140,6 +192,8 @@ const ChangesetReviewPage: React.FC = () => {
       setError("Error aggregating changesets: " + err.message);
     } finally {
       setLoading(false);
+      setShowSqlMergeModal(false);
+      setPendingAggregateId(null);
     }
   };
 
@@ -151,29 +205,77 @@ const ChangesetReviewPage: React.FC = () => {
         loading={loading}
         error={error}
         onChangeSelection={handleChangeSelection}
+        onToggleSelectAll={handleToggleSelectAll}
         onGenerateChangesets={handleGenerateChangesets}
       />
     );
   }
 
   return (
-    <ReviewStep
-      changesets={changesets}
-      startId={startId}
-      loading={loading}
-      error={error}
-      onBack={() => {
-        setStep("select");
-        setChangesets([]);
-        setSelectedChanges([]);
-      }}
-      onAggregate={handleAggregate}
-      onUpdate={(updated) => {
-        setChangesets((prev) =>
-          prev.map((c) => (c.id === updated.id ? updated : c)),
-        );
-      }}
-    />
+    <>
+      <ReviewStep
+        changesets={changesets}
+        startId={startId}
+        loading={loading}
+        error={error}
+        onBack={() => {
+          setStep("select");
+          setChangesets([]);
+          setSelectedChanges([]);
+        }}
+        onAggregate={handleAggregate}
+        onReorder={handleReorderChangesets}
+        onUpdate={(updated) => {
+          setChangesets((prev) =>
+            prev.map((c) => (c.id === updated.id ? updated : c)),
+          );
+        }}
+      />
+
+      {showSqlMergeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                SQL Merge Options
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Choose how SQL files should be handled when combining
+                changesets.
+              </p>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              <button
+                onClick={() => runAggregate("single")}
+                disabled={loading}
+                className="w-full bg-indigo-600 text-white py-2.5 px-4 rounded-md hover:bg-indigo-700 disabled:bg-gray-400 font-medium transition"
+              >
+                Combine SQL Files
+              </button>
+              <button
+                onClick={() => runAggregate("multiple")}
+                disabled={loading}
+                className="w-full bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-400 font-medium transition"
+              >
+                Keep Separate
+              </button>
+              <button
+                onClick={() => {
+                  if (!loading) {
+                    setShowSqlMergeModal(false);
+                    setPendingAggregateId(null);
+                  }
+                }}
+                disabled={loading}
+                className="w-full bg-gray-200 text-gray-800 py-2.5 px-4 rounded-md hover:bg-gray-300 disabled:bg-gray-200 font-medium transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

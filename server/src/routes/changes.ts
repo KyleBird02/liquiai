@@ -395,11 +395,16 @@ router.post("/clear", (req: Request, res: Response) => {
 
 /**
  * POST /api/changes/ai-assistant
- * Ask AI Assistant to create schema based on user description
+ * Ask AI Assistant to create schema and SQL data changes based on user description
  */
 router.post("/ai-assistant", async (req: Request, res: Response) => {
   try {
-    const { conversationHistory } = req.body;
+    const { conversationHistory } = req.body as {
+      conversationHistory?: Array<{
+        role: "user" | "assistant";
+        content: string;
+      }>;
+    };
 
     if (!conversationHistory || !Array.isArray(conversationHistory)) {
       return res.status(400).json({
@@ -407,91 +412,95 @@ router.post("/ai-assistant", async (req: Request, res: Response) => {
       });
     }
 
+    const snapshot = schemaService.getCurrentSnapshot();
+    const existingTableSet = new Set<string>();
+    const snapshotSummary: string[] = [];
+
+    if (snapshot) {
+      snapshot.tables.forEach((table) => {
+        const key = `${table.schema}.${table.name}`.toLowerCase();
+        existingTableSet.add(key);
+        snapshotSummary.push(`${table.schema}.${table.name}`);
+      });
+    }
+
+    const pendingCreateTableSet = new Set<string>();
+    for (const change of proposedChanges.values()) {
+      if (change.type === "CREATE_TABLE") {
+        const payload = change.payload as any;
+        const schema = payload.schema || "public";
+        pendingCreateTableSet.add(
+          `${schema}.${payload.tableName}`.toLowerCase(),
+        );
+      }
+    }
+
+    const compactHistory = conversationHistory.slice(-6).map((message) => ({
+      role: message.role,
+      content: (message.content || "").slice(0, 400),
+    }));
+
     const systemMessage = {
       role: "system" as const,
-      content: `You are a database schema expert. Your job is to help users create database tables based on their descriptions.
+      content: `You are a PostgreSQL schema and data assistant.
 
-When the user describes what they want, you should:
-1. Parse their description and understand the tables and columns they want
-2. If anything is unclear, ask clarifying questions WRAPPED IN TAGS: <clarifying_question>Your question here?</clarifying_question>
-3. Once you have all the information, respond with a JSON object containing ALL the tables to create in a single response
+Current LOCAL schema knowledge base (latest captured snapshot):
+${snapshotSummary.length > 0 ? snapshotSummary.slice(0, 120).join("\n") : "No snapshot currently loaded."}
 
-IMPORTANT TAGGING RULES:
-- When asking a question: Wrap your question with <clarifying_question>question text</clarifying_question>
-- ALWAYS respond with ALL tables in a single JSON response - never split across multiple responses
-- ALWAYS set "continueNeeded": false - this ensures the user is not prompted to click continue
-- ALWAYS include <all_tables_complete></all_tables_complete> at the end of your response when creating tables
+Rules:
+- Never create a table that already exists in the knowledge base.
+- If user asks for an existing table, ask them to change the input using:
+  <clarifying_question>Table public.table_name already exists. Please rename the table or request an alteration instead.</clarifying_question>
+- For any data insertion/population request, ALWAYS return SQL statements (never column-value JSON data payloads).
+- When inserting many rows into the same table, ALWAYS use one multi-row INSERT statement with VALUES (...), (...), (...) instead of many single-row INSERT statements.
+- Ask clarifying questions only when required and wrap them in <clarifying_question>...</clarifying_question>.
+- If ready, return one JSON object only.
+- Do not include markdown fences.
+- Always set continueNeeded=false.
+- Append <all_tables_complete></all_tables_complete> after the JSON when complete.
 
-FOREIGN KEY RULES:
-- For foreign keys, use the format: {"constraintName": "fk_table_column", "column": "local_column", "referencedTable": "referenced_table", "referencedColumn": "referenced_column", "onDelete": "CASCADE|SET NULL|RESTRICT|NO ACTION"}
-- constraintName should follow pattern: fk_<table>_<column>
-- onDelete must be one of: CASCADE, SET NULL, RESTRICT, or NO ACTION
-- Create the referenced table BEFORE the table that references it
-- If a user describes relationships, automatically create the appropriate foreign keys
+Allowed actions:
+- create_tables
+- add_data_sql
+- create_tables_and_add_data_sql
 
-When responding with table definitions, use this exact JSON format:
+Response schema:
 {
-  "action": "create_tables",
+  "action": "create_tables_and_add_data_sql",
   "continueNeeded": false,
   "tables": [
     {
       "tableName": "table_name",
       "schema": "public",
       "columns": [
-        {"name": "id", "type": "SERIAL", "nullable": false, "defaultValue": null, "isPrimaryKey": true},
-        {"name": "name", "type": "VARCHAR(255)", "nullable": false, "defaultValue": null, "isPrimaryKey": false}
+        {"name":"id","type":"SERIAL","nullable":false,"defaultValue":null,"isPrimaryKey":true}
       ],
       "primaryKey": ["id"],
       "foreignKeys": [
-        {
-          "constraintName": "fk_posts_user_id",
-          "column": "user_id",
-          "referencedTable": "users",
-          "referencedColumn": "id",
-          "onDelete": "CASCADE"
-        }
+        {"constraintName":"fk_posts_user_id","column":"user_id","referencedTable":"users","referencedColumn":"id","onDelete":"CASCADE"}
       ]
     }
+  ],
+  "sqlStatements": [
+    {"sql":"INSERT INTO public.table_name (col1, col2) VALUES ('value1_row1', 'value2_row1'), ('value1_row2', 'value2_row2'), ('value1_row3', 'value2_row3');", "fileName":"add_users_to_transactions.sql"}
   ]
-}
-
-FORMAT FOR MODIFYING EXISTING TABLES (ALTER):
-{
-  "action": "alter_tables",
-  "continueNeeded": false,
-  "alterations": [
-    {
-      "tableName": "existing_table",
-      "schema": "public",
-      "modifications": [
-        {
-          "type": "rename_column",
-          "columnName": "old_column_name",
-          "newName": "new_column_name"
-        }
-      ]
-    }
-  ]
-}
-
-EXAMPLES:
-- If user asks for "users and posts tables", create BOTH tables in a single response with "continueNeeded": false and <all_tables_complete></all_tables_complete>
-- If user asks for a single table, set "continueNeeded": false and include <all_tables_complete></all_tables_complete>
-- Example with relationships: User says "Create users table with id and name, and posts table with id, title, and a foreign key to users". Create both tables in one response, with posts.foreignKeys containing the reference to users.
-- Handle all dependencies, relationships, and table creation in one response
-- If you need clarification, wrap your entire question in <clarifying_question> tags`,
+}`,
     };
 
     const messages = [
       systemMessage,
-      ...conversationHistory.map((msg: any) => ({
+      ...compactHistory.map((msg) => ({
         role: msg.role,
         content: msg.content,
       })),
     ];
 
     const llmProvider = LLMFactory.getProvider();
-    const response = await llmProvider.generateCompletion(messages);
+    const response = await llmProvider.generateCompletion(messages, {
+      temperature: 0.1,
+      maxTokens: 1400,
+      enableReasoning: false,
+    });
 
     if (!response) {
       return res.status(500).json({
@@ -499,7 +508,7 @@ EXAMPLES:
       });
     }
 
-    let jsonMatch = null;
+    let jsonMatch: any = null;
     let clarifyingQuestion = null;
     let continueNeeded = false;
     let allTablesComplete = false;
@@ -513,8 +522,9 @@ EXAMPLES:
         clarifyingQuestion = questionMatch[1].trim();
       }
 
-      // Check for table creation JSON
-      const jsonPattern = /\{[\s\S]*"action"\s*:\s*"create_tables"[\s\S]*\}/;
+      // Check for action JSON
+      const jsonPattern =
+        /\{[\s\S]*"action"\s*:\s*"(create_tables|add_data_sql|create_tables_and_add_data_sql)"[\s\S]*\}/;
       const match = response.match(jsonPattern);
       if (match) {
         jsonMatch = JSON.parse(match[0]);
@@ -537,42 +547,307 @@ EXAMPLES:
       });
     }
 
-    if (jsonMatch && jsonMatch.action === "create_tables" && jsonMatch.tables) {
-      // Create the tables as proposed changes
-      const changeIds: string[] = [];
+    if (
+      jsonMatch &&
+      [
+        "create_tables",
+        "add_data_sql",
+        "create_tables_and_add_data_sql",
+      ].includes(jsonMatch.action)
+    ) {
+      const action = jsonMatch.action;
+      const requestedTables = Array.isArray(jsonMatch.tables)
+        ? jsonMatch.tables
+        : [];
+      type SqlStatementEntry = { sql: string; fileName?: string } | null;
+      const requestedSqlEntries = Array.isArray(jsonMatch.sqlStatements)
+        ? jsonMatch.sqlStatements
+            .map((entry: unknown): SqlStatementEntry => {
+              if (typeof entry === "string") {
+                return {
+                  sql: entry,
+                  fileName: undefined as string | undefined,
+                };
+              }
+              if (
+                entry &&
+                typeof entry === "object" &&
+                typeof (entry as any).sql === "string"
+              ) {
+                const rawFileName = (entry as any).fileName;
+                return {
+                  sql: (entry as any).sql,
+                  fileName:
+                    typeof rawFileName === "string" ? rawFileName : undefined,
+                };
+              }
+              return null;
+            })
+            .filter(
+              (
+                entry: SqlStatementEntry,
+              ): entry is { sql: string; fileName?: string } => entry !== null,
+            )
+        : [];
 
-      for (const table of jsonMatch.tables) {
+      if (requestedTables.length === 0 && requestedSqlEntries.length === 0) {
+        return res.json({
+          assistantMessage:
+            "I need more detail. Please describe the tables to create and/or the data to insert.",
+          isClarifyingQuestion: true,
+          continueNeeded: false,
+        });
+      }
+
+      const duplicateTargets: string[] = [];
+      const seenInRequest = new Set<string>();
+
+      for (const table of requestedTables) {
+        const schema = (table.schema || "public").toLowerCase();
+        const tableName = (table.tableName || "").toLowerCase();
+        const key = `${schema}.${tableName}`;
+
+        if (
+          existingTableSet.has(key) ||
+          pendingCreateTableSet.has(key) ||
+          seenInRequest.has(key)
+        ) {
+          duplicateTargets.push(key);
+        }
+
+        seenInRequest.add(key);
+      }
+
+      if (duplicateTargets.length > 0) {
+        const unique = Array.from(new Set(duplicateTargets));
+        const assistantMessage =
+          `The following table(s) already exist in your LOCAL snapshot or pending changes: ${unique.join(", ")}. ` +
+          "Please fix your input by renaming these tables or request ALTER operations instead.";
+
+        return res.json({
+          assistantMessage,
+          isClarifyingQuestion: true,
+          continueNeeded: false,
+        });
+      }
+
+      const newlyCreatedTableSet = new Set<string>();
+      requestedTables.forEach((table: any) => {
+        const schema = (table.schema || "public").toLowerCase();
+        const tableName = (table.tableName || "").toLowerCase();
+        newlyCreatedTableSet.add(`${schema}.${tableName}`);
+      });
+
+      // Data additions must be SQL changes
+      const sqlChangeIds: string[] = [];
+      const invalidSqlStatements: string[] = [];
+      const unknownSqlTables: string[] = [];
+      const pendingSqlChanges: ProposedChange[] = [];
+      const sqlGroupsByTable = new Map<
+        string,
+        {
+          statements: string[];
+          fileName?: string;
+          hasMixedFileName: boolean;
+        }
+      >();
+
+      const extractInsertTable = (statement: string): string | null => {
+        const match = statement.match(
+          /insert\s+into\s+((?:"?[a-zA-Z_][\w$]*"?\.)?"?[a-zA-Z_][\w$]*"?)/i,
+        );
+        if (!match) return null;
+
+        const raw = match[1].replace(/"/g, "");
+        if (raw.includes(".")) {
+          const [schema, table] = raw.split(".");
+          return `${schema.toLowerCase()}.${table.toLowerCase()}`;
+        }
+        return `public.${raw.toLowerCase()}`;
+      };
+
+      const stripLeadingSqlNoise = (statement: string): string => {
+        let remaining = statement.trim();
+
+        // Remove leading line comments and block comments.
+        while (remaining.length > 0) {
+          if (remaining.startsWith("--")) {
+            const nextLine = remaining.indexOf("\n");
+            remaining =
+              nextLine >= 0 ? remaining.slice(nextLine + 1).trim() : "";
+            continue;
+          }
+
+          if (remaining.startsWith("/*")) {
+            const endComment = remaining.indexOf("*/");
+            if (endComment < 0) {
+              return "";
+            }
+            remaining = remaining.slice(endComment + 2).trim();
+            continue;
+          }
+
+          break;
+        }
+
+        return remaining;
+      };
+
+      const isInsertOnlyDataSql = (statement: string): boolean => {
+        const normalized = stripLeadingSqlNoise(statement).toLowerCase();
+        if (!normalized) {
+          return false;
+        }
+
+        // Allow wrappers and CTEs as long as INSERT exists and no destructive/other DDL or DML verbs exist.
+        const hasInsert = /\binsert\s+into\b/i.test(normalized);
+        if (!hasInsert) {
+          return false;
+        }
+
+        const forbiddenVerbPattern =
+          /\b(update|delete\s+from|drop\s+table|drop\s+column|alter\s+table|truncate\s+table|create\s+table)\b/i;
+        return !forbiddenVerbPattern.test(normalized);
+      };
+
+      for (const entry of requestedSqlEntries) {
+        const sql = entry.sql.trim();
+        if (!sql) continue;
+
+        if (!isInsertOnlyDataSql(sql)) {
+          invalidSqlStatements.push(sql);
+          continue;
+        }
+
+        const targetTable = extractInsertTable(sql);
+        if (targetTable) {
+          const existsInSnapshotOrPending =
+            existingTableSet.has(targetTable) ||
+            pendingCreateTableSet.has(targetTable) ||
+            newlyCreatedTableSet.has(targetTable);
+
+          if (!existsInSnapshotOrPending) {
+            unknownSqlTables.push(targetTable);
+            continue;
+          }
+        }
+
+        const groupKey = targetTable || "__generic__";
+        const existingGroup = sqlGroupsByTable.get(groupKey);
+        if (!existingGroup) {
+          sqlGroupsByTable.set(groupKey, {
+            statements: [sql],
+            fileName: entry.fileName,
+            hasMixedFileName: false,
+          });
+        } else {
+          existingGroup.statements.push(sql);
+          if (
+            entry.fileName &&
+            existingGroup.fileName &&
+            existingGroup.fileName !== entry.fileName
+          ) {
+            existingGroup.hasMixedFileName = true;
+          }
+          if (!existingGroup.fileName && entry.fileName) {
+            existingGroup.fileName = entry.fileName;
+          }
+        }
+      }
+
+      sqlGroupsByTable.forEach((group) => {
         const changeId = uuidv4();
-        const change: ProposedChange = {
+        const sqlBody = group.statements.join("\n\n");
+
+        const sqlChange: ProposedChange = {
           id: changeId,
-          type: "CREATE_TABLE",
+          type: "EXECUTE_SQL" as any,
           status: "pending",
           payload: {
-            tableName: table.tableName,
-            schema: table.schema || "public",
-            columns: table.columns || [],
-            primaryKey: table.primaryKey || [],
-            foreignKeys: table.foreignKeys || [],
-          },
+            sql: sqlBody,
+            fileName: group.hasMixedFileName ? undefined : group.fileName,
+          } as any,
+          sqlPreview: sqlBody,
           createdAt: new Date().toISOString(),
           appliedLocally: false,
         };
 
-        // Generate SQL preview using LLM
-        change.sqlPreview = await llmSqlGenerator.generateSQL(change);
+        pendingSqlChanges.push(sqlChange);
+      });
 
-        proposedChanges.set(changeId, change);
-        changeIds.push(changeId);
+      if (invalidSqlStatements.length > 0) {
+        return res.json({
+          assistantMessage:
+            "Data additions must be SQL INSERT statements only. Please revise your request.",
+          isClarifyingQuestion: true,
+          continueNeeded: false,
+        });
       }
 
+      if (unknownSqlTables.length > 0) {
+        const uniqueUnknown = Array.from(new Set(unknownSqlTables));
+        return res.json({
+          assistantMessage:
+            `These SQL statements reference unknown table(s): ${uniqueUnknown.join(", ")}. ` +
+            "Please create those tables first (or include them in the same request).",
+          isClarifyingQuestion: true,
+          continueNeeded: false,
+        });
+      }
+
+      pendingSqlChanges.forEach((sqlChange) => {
+        proposedChanges.set(sqlChange.id, sqlChange);
+        sqlChangeIds.push(sqlChange.id);
+      });
+
+      // Create table proposals after all validations pass
+      const creationResults = await Promise.all(
+        requestedTables.map(async (table: any) => {
+          const changeId = uuidv4();
+          const change: ProposedChange = {
+            id: changeId,
+            type: "CREATE_TABLE",
+            status: "pending",
+            payload: {
+              tableName: table.tableName,
+              schema: table.schema || "public",
+              columns: table.columns || [],
+              primaryKey: table.primaryKey || [],
+              foreignKeys: table.foreignKeys || [],
+            },
+            createdAt: new Date().toISOString(),
+            appliedLocally: false,
+          };
+
+          // Generate SQL preview
+          change.sqlPreview = await llmSqlGenerator.generateSQL(change);
+
+          proposedChanges.set(changeId, change);
+          return changeId;
+        }),
+      );
+
+      const changeIds = [...creationResults, ...sqlChangeIds];
+
       // Build assistant message
-      let assistantMessage = `I've created ${jsonMatch.tables.length} table(s) for you.`;
+      let assistantMessage = "I've prepared your requested changes.";
+
+      if (requestedTables.length > 0) {
+        assistantMessage += ` Created ${requestedTables.length} table proposal(s).`;
+      }
+      if (sqlChangeIds.length > 0) {
+        assistantMessage += ` Added ${sqlChangeIds.length} SQL data change(s).`;
+      }
+
+      if (action === "add_data_sql" && requestedTables.length === 0) {
+        assistantMessage += " Data additions were generated as SQL changes.";
+      }
 
       if (continueNeeded && !allTablesComplete) {
         assistantMessage +=
-          " These tables have dependencies. Please type 'continue' or 'next' to create the remaining tables, or describe what else you need.";
+          " Some dependencies remain. Please provide additional details to continue.";
       } else if (allTablesComplete) {
-        assistantMessage += " All tables have been created successfully!";
+        assistantMessage += " All requested changes are ready for review.";
       }
 
       return res.json({

@@ -18,13 +18,18 @@ class SchemaService {
   }
 
   /**
-   * Captures the schema snapshot for a specific connection without storing it
+   * Captures the schema snapshot for a specific connection and stores it as current
    */
   async captureSnapshotWithConnection(
     connectionString: string,
     databaseName: string,
   ): Promise<SchemaSnapshot> {
-    return await introspectSchemaWithConnection(connectionString, databaseName);
+    const snapshot = await introspectSchemaWithConnection(
+      connectionString,
+      databaseName,
+    );
+    this.currentSnapshot = snapshot;
+    return snapshot;
   }
 
   /**

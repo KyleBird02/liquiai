@@ -368,10 +368,14 @@ export const liquibaseAPI = {
   /**
    * Aggregate changesets into a single file
    */
-  async aggregateChangesets(aggregatedId: string) {
+  async aggregateChangesets(
+    aggregatedId: string,
+    sqlMergeMode: "single" | "multiple" = "single",
+  ) {
     try {
       const response = await apiClient.post("/liquibase/aggregate", {
         aggregatedId,
+        sqlMergeMode,
       });
       return response.data;
     } catch (error) {
@@ -489,6 +493,20 @@ export const liquibaseAPI = {
   async clearSession() {
     try {
       const response = await apiClient.post("/liquibase/clear-session");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Reorder and renumber generated changesets
+   */
+  async reorderAndRenumberChangesets(orderedIds: string[]) {
+    try {
+      const response = await apiClient.post("/liquibase/reorder-renumber", {
+        orderedIds,
+      });
       return response.data;
     } catch (error) {
       return handleError(error as AxiosError);

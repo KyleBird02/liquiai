@@ -65,6 +65,7 @@ class LiquibaseGenerator {
 
     let sqlFilePath: string | null = null;
     let sqlFileContent: string | null = null;
+    let sqlFiles: Array<{ path: string; content: string }> | undefined;
 
     if (useSqlFormat) {
       // Generate SQL file name based on change type and payload
@@ -74,6 +75,7 @@ class LiquibaseGenerator {
         targetSprint,
       );
       sqlFileContent = this.generateSQL(change);
+      sqlFiles = [{ path: sqlFilePath, content: sqlFileContent }];
     }
 
     return {
@@ -84,6 +86,7 @@ class LiquibaseGenerator {
       change,
       sqlFilePath,
       sqlFileContent,
+      sqlFiles,
       xmlContent,
       targetApplication,
       targetSprint,
@@ -139,12 +142,8 @@ class LiquibaseGenerator {
         throw new Error(`Unsupported change type: ${change.type}`);
     }
 
-    // Build just the changeset element, not the full databaseChangeLog
     let changesetContent: any = {};
     if (Array.isArray(changeXml)) {
-      // If there are multiple changes (like multiple ALTER TABLE actions in one changeset)
-      // xml2js expects sibling elements of the same name to be arrays, or multiple different elements
-      // as separate keys.
       for (const item of changeXml) {
         const key = Object.keys(item)[0];
         if (!changesetContent[key]) {
@@ -172,13 +171,11 @@ class LiquibaseGenerator {
       xmldec: undefined,
       renderOpts: {
         pretty: true,
-        indent: "    ", // 4 spaces for inner tags
+        indent: "    ",
       },
     });
 
     let xml = builder.buildObject(changeSet);
-    // Add 4 spaces of base indentation so the <changeSet> tag itself is indented
-    // when inserted into the databaseChangeLog
     xml = xml
       .split("\n")
       .map((line) => `    ${line}`)
@@ -230,6 +227,30 @@ class LiquibaseGenerator {
     sprint: string,
   ): string {
     let filename = "";
+    const changeSuffix = change.id ? change.id.slice(0, 8) : `${Date.now()}`;
+
+    const sanitizeToken = (value: string): string =>
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 60) || "data";
+
+    const detectSqlTargetTable = (sql: string): string => {
+      const insertMatch = sql.match(
+        /insert\s+into\s+((?:"?[a-zA-Z_][\w$]*"?\.)?"?[a-zA-Z_][\w$]*"?)/i,
+      );
+      const updateMatch = sql.match(
+        /update\s+((?:"?[a-zA-Z_][\w$]*"?\.)?"?[a-zA-Z_][\w$]*"?)/i,
+      );
+      const deleteMatch = sql.match(
+        /delete\s+from\s+((?:"?[a-zA-Z_][\w$]*"?\.)?"?[a-zA-Z_][\w$]*"?)/i,
+      );
+
+      const target =
+        insertMatch?.[1] || updateMatch?.[1] || deleteMatch?.[1] || "data";
+      return sanitizeToken(target.replace(/"/g, "").replace(/\./g, "_"));
+    };
 
     switch (change.type) {
       case "CREATE_TABLE": {
@@ -249,21 +270,33 @@ class LiquibaseGenerator {
       }
       case "EXECUTE_SQL": {
         const payload = change.payload as any;
-        // Try to infer a meaningful name from SQL content
         const sql = payload.sql || "";
-        if (sql.toLowerCase().includes("insert")) {
-          filename = `seed_data.sql`;
-        } else if (sql.toLowerCase().includes("update")) {
-          filename = `update_data.sql`;
-        } else if (sql.toLowerCase().includes("delete")) {
-          filename = `delete_data.sql`;
+        const aiProvidedFileName =
+          typeof payload.fileName === "string" ? payload.fileName.trim() : "";
+        const isValidProvidedName =
+          aiProvidedFileName.length > 0 &&
+          /^[a-zA-Z0-9._-]+\.sql$/.test(aiProvidedFileName);
+
+        if (isValidProvidedName) {
+          filename = aiProvidedFileName;
+          break;
+        }
+
+        const lowerSql = sql.toLowerCase();
+        const targetToken = detectSqlTargetTable(sql);
+        if (lowerSql.includes("insert")) {
+          filename = `insert_${targetToken}_${changeSuffix}.sql`;
+        } else if (lowerSql.includes("update")) {
+          filename = `update_${targetToken}_${changeSuffix}.sql`;
+        } else if (lowerSql.includes("delete")) {
+          filename = `delete_${targetToken}_${changeSuffix}.sql`;
         } else {
-          filename = `migration_${Date.now()}.sql`;
+          filename = `migration_${targetToken}_${changeSuffix}.sql`;
         }
         break;
       }
       default:
-        filename = `migration_${Date.now()}.sql`;
+        filename = `migration_${changeSuffix}.sql`;
     }
 
     return `${application}/${sprint}/${filename}`;
@@ -631,63 +664,178 @@ class LiquibaseGenerator {
     return lines.join("\n");
   }
 
-  /**
-   * Aggregate multiple changesets into a single changeset
-   * Merges all changes into one XML block with a new ID
-   */
-  aggregateChangesets(
+  private extractChangesetInnerXml(xmlContent: string): string {
+    const xmlMatch = xmlContent.match(
+      /<change[sS]et[^>]*>\n?([\s\S]*?)\n?\s*<\/change[sS]et>/,
+    );
+    return xmlMatch ? xmlMatch[1] : xmlContent;
+  }
+
+  private normalizeInnerXmlIndent(block: string, baseIndent = 8): string {
+    const rawLines = block.replace(/\r\n/g, "\n").split("\n");
+
+    while (rawLines.length > 0 && rawLines[0].trim().length === 0) {
+      rawLines.shift();
+    }
+    while (
+      rawLines.length > 0 &&
+      rawLines[rawLines.length - 1].trim().length === 0
+    ) {
+      rawLines.pop();
+    }
+
+    const nonEmptyLines = rawLines.filter((line) => line.trim().length > 0);
+    const minIndent =
+      nonEmptyLines.length > 0
+        ? Math.min(
+            ...nonEmptyLines.map((line) => {
+              const match = line.match(/^\s*/);
+              return match ? match[0].length : 0;
+            }),
+          )
+        : 0;
+
+    const basePadding = " ".repeat(baseIndent);
+    return rawLines
+      .map((line) => {
+        if (line.trim().length === 0) {
+          return "";
+        }
+        const dedented =
+          line.length >= minIndent ? line.slice(minIndent) : line;
+        return `${basePadding}${dedented}`;
+      })
+      .join("\n");
+  }
+
+  private quoteXmlAttribute(value: string): string {
+    return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  }
+
+  private sortForAggregation(
+    changesets: ChangesetDefinition[],
+  ): ChangesetDefinition[] {
+    const rank = (cs: ChangesetDefinition): number => {
+      if (cs.change.type === "CREATE_TABLE") return 0;
+      if (cs.change.type === "ALTER_TABLE") return 1;
+      if (cs.change.type === "DROP_TABLE") return 2;
+      if (cs.change.type === "EXECUTE_SQL") return 3;
+      return 4;
+    };
+
+    return [...changesets].sort((a, b) => {
+      const diff = rank(a) - rank(b);
+      if (diff !== 0) return diff;
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  private buildAggregatedChangeset(
     changesets: ChangesetDefinition[],
     aggregatedId: string,
+    sqlMergeMode: "single" | "multiple" = "single",
   ): ChangesetDefinition {
-    if (changesets.length === 0) {
-      throw new Error("Cannot aggregate empty changeset list");
-    }
+    const orderedChangesets = this.sortForAggregation(changesets);
+    const baseChangeset = orderedChangesets[0];
+    const combinedReviews = orderedChangesets.flatMap((cs) => cs.reviews || []);
 
-    if (changesets.length === 1) {
-      return changesets[0];
-    }
+    const sqlFiles: Array<{ path: string; content: string }> = [];
+    const usedSqlPaths = new Set<string>();
+    const sqlPathBySourceKey = new Map<string, string>();
 
-    // Get the first changeset as base (to get author, application, sprint)
-    const baseChangeset = changesets[0];
+    orderedChangesets.forEach((cs) => {
+      const sourceFiles =
+        cs.sqlFiles && cs.sqlFiles.length > 0
+          ? cs.sqlFiles
+          : cs.sqlFilePath && cs.sqlFileContent
+            ? [{ path: cs.sqlFilePath, content: cs.sqlFileContent }]
+            : [];
 
-    // Combine all existing reviews from the individual changesets
-    const combinedReviews = changesets.flatMap((cs) => cs.reviews || []);
+      sourceFiles.forEach((file, fileIndex) => {
+        const sourceKey = `${cs.id}::${fileIndex}`;
+        let nextPath = file.path;
+        if (usedSqlPaths.has(nextPath)) {
+          const dotIndex = nextPath.lastIndexOf(".");
+          const base = dotIndex > 0 ? nextPath.slice(0, dotIndex) : nextPath;
+          const ext = dotIndex > 0 ? nextPath.slice(dotIndex) : ".sql";
+          let attempt = 2;
+          while (usedSqlPaths.has(`${base}_${attempt}${ext}`)) {
+            attempt += 1;
+          }
+          nextPath = `${base}_${attempt}${ext}`;
+        }
 
-    // Collect all SQL files from changesets being aggregated
-    let aggregatedSqlFilePath: string | null = null;
-    let aggregatedSqlFileContent: string | null = null;
-    for (const cs of changesets) {
-      if (cs.sqlFilePath && cs.sqlFileContent && !aggregatedSqlFilePath) {
-        aggregatedSqlFilePath = cs.sqlFilePath;
-        aggregatedSqlFileContent = cs.sqlFileContent;
+        usedSqlPaths.add(nextPath);
+        sqlPathBySourceKey.set(sourceKey, nextPath);
+        sqlFiles.push({ path: nextPath, content: file.content });
+      });
+    });
+
+    const mergedOperations: string[] = [];
+
+    orderedChangesets.forEach((cs) => {
+      if (cs.change.type === "EXECUTE_SQL") {
+        if (sqlMergeMode === "multiple") {
+          const thisSqlFiles =
+            cs.sqlFiles && cs.sqlFiles.length > 0
+              ? cs.sqlFiles
+              : cs.sqlFilePath && cs.sqlFileContent
+                ? [{ path: cs.sqlFilePath, content: cs.sqlFileContent }]
+                : [];
+
+          thisSqlFiles.forEach((sf, fileIndex) => {
+            const sourceKey = `${cs.id}::${fileIndex}`;
+            const path = sqlPathBySourceKey.get(sourceKey) || sf.path;
+            mergedOperations.push(
+              `        <sqlFile path="${this.quoteXmlAttribute(path)}" relativeToChangelogFile="true"/>`,
+            );
+          });
+        }
+        return;
       }
-    }
 
-    // Parse and merge all XML blocks
-    // For simplicity, we'll create a new multi-operation changeset
-    let mergedXmlContent = `    <changeSet id="${aggregatedId}" author="${baseChangeset.author}">`;
-
-    // Add each change operation
-    for (const cs of changesets) {
-      // Parse the changeset XML to extract just the inner operation
-      const xmlMatch = cs.xmlContent.match(
-        /<change[sS]et[^>]*>\n?([\s\S]*?)\n?\s*<\/change[sS]et>/,
+      const inner = this.normalizeInnerXmlIndent(
+        this.extractChangesetInnerXml(cs.xmlContent),
       );
-      if (xmlMatch) {
-        mergedXmlContent += "\n" + xmlMatch[1];
+      mergedOperations.push(inner);
+    });
+
+    let finalSqlFiles: Array<{ path: string; content: string }> | undefined;
+    let sqlFilePath: string | null = null;
+    let sqlFileContent: string | null = null;
+
+    if (sqlFiles.length > 0) {
+      if (sqlMergeMode === "single") {
+        const combinedPath = `${baseChangeset.targetApplication}/${baseChangeset.targetSprint}/combined_${aggregatedId.replace(/[^a-zA-Z0-9_-]/g, "_")}.sql`;
+        const combinedContent = sqlFiles
+          .map((file) => `-- ${file.path}\n${file.content.trim()}`)
+          .join("\n\n");
+
+        mergedOperations.push(
+          `        <sqlFile path="${this.quoteXmlAttribute(combinedPath)}" relativeToChangelogFile="true"/>`,
+        );
+
+        finalSqlFiles = [{ path: combinedPath, content: combinedContent }];
+        sqlFilePath = combinedPath;
+        sqlFileContent = combinedContent;
+      } else {
+        finalSqlFiles = sqlFiles;
+        sqlFilePath = sqlFiles[0].path;
+        sqlFileContent = sqlFiles[0].content;
       }
     }
 
-    mergedXmlContent += "\n    </changeSet>";
+    const mergedXmlContent = `    <changeSet id="${aggregatedId}" author="${baseChangeset.author}">\n${mergedOperations.join("\n\n")}\n    </changeSet>`;
 
     return {
       id: aggregatedId,
       author: baseChangeset.author,
-      comment: null,
-      changeType: aggregatedSqlFilePath ? "sql" : "xml",
-      change: changesets[0].change,
-      sqlFilePath: aggregatedSqlFilePath,
-      sqlFileContent: aggregatedSqlFileContent,
+      comment: "Aggregated",
+      changeType: finalSqlFiles && finalSqlFiles.length > 0 ? "sql" : "xml",
+      change: baseChangeset.change,
+      sqlFilePath,
+      sqlFileContent,
+      sqlFiles: finalSqlFiles,
       xmlContent: mergedXmlContent,
       targetApplication: baseChangeset.targetApplication,
       targetSprint: baseChangeset.targetSprint,
@@ -697,143 +845,40 @@ class LiquibaseGenerator {
   }
 
   /**
+   * Aggregate multiple changesets into a single changeset
+   * Merges all changes into one XML block with a new ID
+   */
+  aggregateChangesets(
+    changesets: ChangesetDefinition[],
+    aggregatedId: string,
+    sqlMergeMode: "single" | "multiple" = "single",
+  ): ChangesetDefinition {
+    if (changesets.length === 0) {
+      throw new Error("Cannot aggregate empty changeset list");
+    }
+
+    if (changesets.length === 1) {
+      return changesets[0];
+    }
+
+    return this.buildAggregatedChangeset(
+      changesets,
+      aggregatedId,
+      sqlMergeMode,
+    );
+  }
+
+  /**
    * Aggregate multiple changesets into a single intelligent changeset using an LLM,
    * while simultaneously reviewing the merged changes for risks.
    */
   async aggregateChangesetsIntelligently(
     changesets: ChangesetDefinition[],
     aggregatedId: string,
+    sqlMergeMode: "single" | "multiple" = "single",
   ): Promise<ChangesetDefinition> {
-    if (changesets.length === 0) {
-      throw new Error("Cannot aggregate empty changeset list");
-    }
-    if (changesets.length === 1) {
-      return changesets[0];
-    }
-
-    const baseChangeset = changesets[0];
-
-    // Combine all existing reviews from the individual changesets
-    const combinedReviews = changesets.flatMap((cs) => cs.reviews || []);
-
-    // Collect all SQL files from changesets being aggregated
-    const sqlFileMap: Map<string, { path: string; content: string }> =
-      new Map();
-    for (const cs of changesets) {
-      if (cs.sqlFilePath && cs.sqlFileContent) {
-        sqlFileMap.set(cs.sqlFilePath, {
-          path: cs.sqlFilePath,
-          content: cs.sqlFileContent,
-        });
-      }
-    }
-
-    // Extract XML blocks without the `<changeSet>` wrapper.
-    const xmlBlocks: string[] = [];
-    for (const cs of changesets) {
-      const xmlMatch = cs.xmlContent.match(
-        /<change[sS]et[^>]*>\n?([\s\S]*?)\n?\s*<\/change[sS]et>/,
-      );
-      if (xmlMatch) {
-        xmlBlocks.push(xmlMatch[1].trim());
-      }
-    }
-
-    const rawActions = xmlBlocks.join("\n\n");
-    const systemPrompt = `You are a strict, expert Liquibase developer and Database DBA.
-Your goal is to successfully combine multiple Liquibase XML operations into the most optimized, single set of actions.
-Combine operations where appropriate (e.g. creating a table with a column added in a later changeset should just be a single CREATE TABLE changeset).
-
-DO NOT include actual file paths in your <sqlFile> tags. Instead use PLACEHOLDER paths like <sqlFile path="PLACEHOLDER_SQL_PATH"/> and we will replace them with actual paths.
-
-RETURN EXACTLY ONE VALID JSON OBJECT WITH NO COMMENTS OR STRING WRITINGS. Example format:
-{
-  "xml": "unformatted raw inner Liquibase XML operations. Do NOT output a wrapping <changeSet> tag. Keep 8 spaces of indentation since this output goes directly inside a changeset! Escape quotes properly."
-}
-DO NOT WRAP YOUR RESPONSE IN \`\`\`json. OUTPUT ONLY RAW JSON.`;
-
-    const userPrompt = `Here are the un-combined XML operations meant to be run chronologically:\n${rawActions}\n\nPlease intelligently output the JSON.`;
-
-    const messages: LLMMessage[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ];
-
-    try {
-      const provider = LLMFactory.getProvider();
-      let responseText = await provider.generateCompletion(messages);
-
-      // Strip potential markdown markers
-      responseText = responseText
-        .replace(/^```[a-zA-Z]*\n/, "")
-        .replace(/```$/, "")
-        .trim();
-
-      const parsed = JSON.parse(responseText);
-      let intelligentXml = parsed.xml;
-
-      // Replace PLACEHOLDER_SQL_PATH with actual SQL file paths from the aggregated changesets
-      // If there are multiple SQL files, use the first one, or preserve the placeholder for manual review
-      if (sqlFileMap.size > 0) {
-        const sqlPaths = Array.from(sqlFileMap.keys());
-        intelligentXml = intelligentXml.replace(
-          /PLACEHOLDER_SQL_PATH/g,
-          sqlPaths[0],
-        );
-      }
-
-      // Ensure the LLM output has a trailing newline before the closing tag,
-      // and avoid adding extra indentation to the first line if the LLM already padded it.
-      const formattedXml = intelligentXml
-        .split("\n")
-        .map((line: string) => {
-          // If the line has no leading spaces, add 8 spaces
-          if (line.trim().length > 0 && !line.startsWith(" ")) {
-            return "        " + line;
-          }
-          // If it starts with 8 spaces, keep it, else let it be
-          return line;
-        })
-        .join("\n");
-
-      const mergedXmlContent = `    <changeSet id="${aggregatedId}" author="${baseChangeset.author}">
-${formattedXml}
-    </changeSet>`;
-
-      // If we have SQL files, preserve them in the aggregated changeset
-      // Use the first one if there are multiple
-      let aggregatedSqlFilePath: string | null = null;
-      let aggregatedSqlFileContent: string | null = null;
-
-      if (sqlFileMap.size > 0) {
-        const firstSqlFile = Array.from(sqlFileMap.values())[0];
-        aggregatedSqlFilePath = firstSqlFile.path;
-        aggregatedSqlFileContent = firstSqlFile.content;
-      }
-
-      return {
-        id: aggregatedId,
-        author: baseChangeset.author,
-        comment: "Aggregated via AI",
-        changeType: sqlFileMap.size > 0 ? "sql" : "xml",
-        change: changesets[0].change, // Reference first change
-        sqlFilePath: aggregatedSqlFilePath,
-        sqlFileContent: aggregatedSqlFileContent,
-        xmlContent: mergedXmlContent,
-        targetApplication: baseChangeset.targetApplication,
-        targetSprint: baseChangeset.targetSprint,
-        edited: false,
-        reviews: combinedReviews,
-      };
-    } catch (e) {
-      console.warn(
-        "LLM aggregation failed, falling back to basic string append...",
-        e,
-      );
-      const fallback = this.aggregateChangesets(changesets, aggregatedId);
-      fallback.reviews = combinedReviews;
-      return fallback;
-    }
+    // Keep API compatibility but use deterministic aggregation to preserve operation ordering.
+    return this.aggregateChangesets(changesets, aggregatedId, sqlMergeMode);
   }
 
   /**

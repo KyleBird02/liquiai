@@ -27,6 +27,34 @@ export const ChangesetCard: React.FC<ChangesetCardProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  const replaceSqlFilePathInXml = (
+    sourceXml: string,
+    previousPath: string,
+    nextPath: string,
+  ): string => {
+    if (!sourceXml || !nextPath) return sourceXml;
+
+    if (previousPath) {
+      const escapedPrevious = previousPath.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&",
+      );
+      const exactPattern = new RegExp(
+        `(<sqlFile[^>]*\\bpath=")${escapedPrevious}(")`,
+        "g",
+      );
+      const replacedExact = sourceXml.replace(exactPattern, `$1${nextPath}$2`);
+      if (replacedExact !== sourceXml) {
+        return replacedExact;
+      }
+    }
+
+    return sourceXml.replace(
+      /(<sqlFile[^>]*\bpath=")([^"]+)(")/,
+      `$1${nextPath}$3`,
+    );
+  };
+
   const handleSaveEdit = async () => {
     setSaveLoading(true);
     setSaveError(null);
@@ -138,7 +166,18 @@ export const ChangesetCard: React.FC<ChangesetCardProps> = ({
                 <input
                   type="text"
                   value={editedSqlPath}
-                  onChange={(e) => setEditedSqlPath(e.target.value)}
+                  onChange={(e) => {
+                    const nextPath = e.target.value;
+                    const previousPath = editedSqlPath;
+                    setEditedSqlPath(nextPath);
+                    setEditedXml((currentXml) =>
+                      replaceSqlFilePathInXml(
+                        currentXml,
+                        previousPath,
+                        nextPath,
+                      ),
+                    );
+                  }}
                   placeholder="e.g. trade-service/sprint-1/my_change.sql"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
                 />

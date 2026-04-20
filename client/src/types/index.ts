@@ -4,7 +4,8 @@ export type ChangeType =
   | "ALTER_TABLE"
   | "DROP_TABLE"
   | "ADD_INDEX"
-  | "DROP_INDEX";
+  | "DROP_INDEX"
+  | "EXECUTE_SQL";
 
 export interface ColumnDefinition {
   name: string;
@@ -174,6 +175,10 @@ export interface DropTablePayload {
   definition?: TableDefinition;
 }
 
+export interface ExecuteSqlPayload {
+  sql: string;
+}
+
 // Phase 2 - Liquibase Changeset Generation
 
 export interface ChangeReview {
@@ -189,6 +194,10 @@ export interface ChangesetDefinition {
   change: ProposedChange;
   sqlFilePath: string | null;
   sqlFileContent: string | null;
+  sqlFiles?: Array<{
+    path: string;
+    content: string;
+  }>;
   xmlContent: string;
   targetApplication: string;
   targetSprint: string;

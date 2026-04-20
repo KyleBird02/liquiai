@@ -60,10 +60,8 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
         setAllTablesComplete(result.allTablesComplete || false);
 
         if (result.changeIds && result.changeIds.length > 0) {
-          // Add table names to the list
           setCreatedTableNames([...createdTableNames, ...result.changeIds]);
 
-          // If all tables are complete, close the modal and call onSuccess
           if (result.allTablesComplete) {
             setConversationHistory([]);
             setUserInput("");
@@ -106,11 +104,11 @@ export const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
           {conversationHistory.length === 0 && (
             <div className="text-center text-gray-500">
               <p className="mb-2">
-                Describe the tables and structure you want to create.
+                Describe the tables/structure you want to create, or data you
+                want to insert.
               </p>
               <p className="text-sm">
-                Example: "Create a users table with id, name, email, and a posts
-                table with id, title, content, user_id as a foreign key"
+                Example: "Create users and posts tables, then add 2 seed users".
               </p>
             </div>
           )}

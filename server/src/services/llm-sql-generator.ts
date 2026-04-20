@@ -19,6 +19,22 @@ class LLMSqlGenerator {
       return this.sqlCache.get(change.id)!;
     }
 
+    if (change.type === "CREATE_TABLE") {
+      const directSql = this.generateCreateTableSQL(
+        change.payload as CreateTablePayload,
+      );
+      this.sqlCache.set(change.id, directSql);
+      return directSql;
+    }
+
+    if (change.type === "DROP_TABLE") {
+      const directSql = this.generateDropTableSQL(
+        change.payload as DropTablePayload,
+      );
+      this.sqlCache.set(change.id, directSql);
+      return directSql;
+    }
+
     const payloadStr = this.serializePayload(change);
     const messages: LLMMessage[] = [
       {
@@ -36,7 +52,6 @@ class LLMSqlGenerator {
     const sql = await provider.generateCompletion(messages);
     const cleaned = this.cleanSQL(sql);
 
-    // Cache the result
     this.sqlCache.set(change.id, cleaned);
     return cleaned;
   }
@@ -85,16 +100,22 @@ class LLMSqlGenerator {
     const lines: string[] = ["ALTER TABLE " + p.tableName];
 
     // Only include changes that are present
-    const hasAddedColumns = p.addedColumns?.length;
-    const hasRemovedColumns = p.removedColumns?.length;
-    const hasModifiedColumns = p.modifiedColumns?.length;
-    const hasAddedFKs = p.addedForeignKeys?.length;
-    const hasRemovedFKs = p.removedForeignKeys?.length;
+    const addedColumns = p.addedColumns ?? [];
+    const removedColumns = p.removedColumns ?? [];
+    const modifiedColumns = p.modifiedColumns ?? [];
+    const addedForeignKeys = p.addedForeignKeys ?? [];
+    const removedForeignKeys = p.removedForeignKeys ?? [];
+
+    const hasAddedColumns = addedColumns.length > 0;
+    const hasRemovedColumns = removedColumns.length > 0;
+    const hasModifiedColumns = modifiedColumns.length > 0;
+    const hasAddedFKs = addedForeignKeys.length > 0;
+    const hasRemovedFKs = removedForeignKeys.length > 0;
 
     if (hasAddedColumns) {
       lines.push(
         "ADD COLUMNS: " +
-          p.addedColumns
+          addedColumns
             .map(
               (c) =>
                 `${c.name} ${c.type}${!c.nullable ? " NOT NULL" : ""}${c.defaultValue ? ` DEFAULT ${c.defaultValue}` : ""}`,
@@ -104,7 +125,7 @@ class LLMSqlGenerator {
     }
 
     if (hasRemovedColumns) {
-      const droppedCols = p.removedColumns
+      const droppedCols = removedColumns
         .map((c) => {
           const colName = typeof c === "string" ? c : c.name;
           const isFk = typeof c === "string" ? false : c.isForeignKey;
@@ -112,7 +133,7 @@ class LLMSqlGenerator {
         })
         .join(", ");
       lines.push("DROP COLUMNS: " + droppedCols);
-      const hasFk = p.removedColumns.some((c) =>
+      const hasFk = removedColumns.some((c) =>
         typeof c === "string" ? false : c.isForeignKey,
       );
       if (hasFk) {
@@ -123,7 +144,7 @@ class LLMSqlGenerator {
     if (hasModifiedColumns) {
       lines.push(
         "MODIFY COLUMNS: " +
-          p.modifiedColumns
+          modifiedColumns
             .map((m) => {
               const changes: string[] = [];
               if (m.oldDefinition.name !== m.newDefinition.name) {
@@ -157,7 +178,7 @@ class LLMSqlGenerator {
     if (hasAddedFKs) {
       lines.push(
         "ADD FKS: " +
-          p.addedForeignKeys
+          addedForeignKeys
             .map(
               (fk) =>
                 `${fk.column} -> ${fk.referencedTable}(${fk.referencedColumn})`,
@@ -169,7 +190,7 @@ class LLMSqlGenerator {
     if (hasRemovedFKs) {
       lines.push(
         "DROP FKS: " +
-          p.removedForeignKeys
+          removedForeignKeys
             .map((fk) => (typeof fk === "string" ? fk : fk.constraintName))
             .join(", "),
       );
@@ -193,6 +214,48 @@ class LLMSqlGenerator {
     let line = "DROP TABLE " + p.tableName;
     if (p.cascade) line += " CASCADE";
     return line;
+  }
+
+  private generateCreateTableSQL(payload: CreateTablePayload): string {
+    const schema = payload.schema || "public";
+    const columnDefinitions = payload.columns.map((column) => {
+      let definition = `"${column.name}" ${column.type}`;
+      if (!column.nullable) {
+        definition += " NOT NULL";
+      }
+      if (column.defaultValue !== null && column.defaultValue !== undefined) {
+        definition += ` DEFAULT ${column.defaultValue}`;
+      }
+      return definition;
+    });
+
+    if (payload.primaryKey && payload.primaryKey.length > 0) {
+      const pkColumns = payload.primaryKey
+        .map((column) => `"${column}"`)
+        .join(", ");
+      columnDefinitions.push(`PRIMARY KEY (${pkColumns})`);
+    }
+
+    if (payload.foreignKeys && payload.foreignKeys.length > 0) {
+      payload.foreignKeys.forEach((fk) => {
+        const referencedParts = fk.referencedTable.split(".");
+        const referencedSchema =
+          referencedParts.length > 1 ? referencedParts[0] : schema;
+        const referencedTableName =
+          referencedParts.length > 1 ? referencedParts[1] : fk.referencedTable;
+        columnDefinitions.push(
+          `CONSTRAINT "${fk.constraintName}" FOREIGN KEY ("${fk.column}") REFERENCES "${referencedSchema}"."${referencedTableName}"("${fk.referencedColumn}") ON DELETE ${fk.onDelete}`,
+        );
+      });
+    }
+
+    return `CREATE TABLE "${schema}"."${payload.tableName}" (\n  ${columnDefinitions.join(",\n  ")}\n);`;
+  }
+
+  private generateDropTableSQL(payload: DropTablePayload): string {
+    const schema = payload.schema || "public";
+    const cascadeSuffix = payload.cascade ? " CASCADE" : "";
+    return `DROP TABLE "${schema}"."${payload.tableName}"${cascadeSuffix};`;
   }
 
   /**

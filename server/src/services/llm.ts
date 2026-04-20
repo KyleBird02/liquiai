@@ -7,7 +7,14 @@ export interface LLMMessage {
 }
 
 export interface LLMProvider {
-  generateCompletion(messages: LLMMessage[]): Promise<string>;
+  generateCompletion(
+    messages: LLMMessage[],
+    options?: {
+      temperature?: number;
+      maxTokens?: number;
+      enableReasoning?: boolean;
+    },
+  ): Promise<string>;
 }
 
 export interface LLMResponse {
@@ -28,15 +35,34 @@ export class OpenRouterLLMProvider implements LLMProvider {
     this.model = model;
   }
 
-  async generateCompletion(messages: LLMMessage[]): Promise<string> {
+  async generateCompletion(
+    messages: LLMMessage[],
+    options?: {
+      temperature?: number;
+      maxTokens?: number;
+      enableReasoning?: boolean;
+    },
+  ): Promise<string> {
+    const reasoningEnabled =
+      options?.enableReasoning ??
+      process.env.OPENROUTER_ENABLE_REASONING === "true";
     const requestBody = {
       model: this.model,
       messages: messages,
-      reasoning: { enabled: true },
+      ...(options?.temperature !== undefined
+        ? { temperature: options.temperature }
+        : {}),
+      ...(options?.maxTokens !== undefined
+        ? { max_tokens: options.maxTokens }
+        : {}),
+      ...(reasoningEnabled ? { reasoning: { enabled: true } } : {}),
     };
 
-    console.log("---- LLM REQUEST ----");
-    console.log(JSON.stringify(requestBody, null, 2));
+    const debugLogging = process.env.LLM_DEBUG === "true";
+    if (debugLogging) {
+      console.log("---- LLM REQUEST ----");
+      console.log(JSON.stringify(requestBody, null, 2));
+    }
 
     const response = await fetch(
       "https://openrouter.ai/api/v1/chat/completions",
@@ -60,8 +86,10 @@ export class OpenRouterLLMProvider implements LLMProvider {
     }
 
     const result = (await response.json()) as LLMResponse;
-    console.log("---- LLM SUCCESS RESPONSE ----");
-    console.log(JSON.stringify(result, null, 2));
+    if (debugLogging) {
+      console.log("---- LLM SUCCESS RESPONSE ----");
+      console.log(JSON.stringify(result, null, 2));
+    }
 
     if (!result.choices || result.choices.length === 0) {
       throw new Error("No choices returned from OpenRouter API.");
@@ -72,7 +100,14 @@ export class OpenRouterLLMProvider implements LLMProvider {
 }
 
 export class CopilotLLMProvider implements LLMProvider {
-  async generateCompletion(messages: LLMMessage[]): Promise<string> {
+  async generateCompletion(
+    messages: LLMMessage[],
+    options?: {
+      temperature?: number;
+      maxTokens?: number;
+      enableReasoning?: boolean;
+    },
+  ): Promise<string> {
     throw new Error("Copilot provider is not yet fully implemented.");
   }
 }

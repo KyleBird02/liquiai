@@ -203,7 +203,8 @@ router.post("/generate-batch", async (req: Request, res: Response) => {
 router.put("/changeset/:id", (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { xmlContent, sqlFileContent, comment, changeType } = req.body;
+    const { xmlContent, sqlFileContent, sqlFilePath, comment, changeType } =
+      req.body;
 
     const session = sessionManager.getSession();
     const changeset = session.changesets.find((cs) => cs.id === id);
@@ -218,6 +219,36 @@ router.put("/changeset/:id", (req: Request, res: Response) => {
       edited: true,
     };
 
+    const replaceSqlFilePathInXml = (
+      sourceXml: string,
+      oldPath: string | null,
+      nextPath: string,
+    ): string => {
+      if (!sourceXml || !nextPath) {
+        return sourceXml;
+      }
+
+      if (oldPath) {
+        const escapedOld = oldPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const exactPattern = new RegExp(
+          `(<sqlFile[^>]*\\bpath=")${escapedOld}(")`,
+          "g",
+        );
+        const replacedExact = sourceXml.replace(
+          exactPattern,
+          `$1${nextPath}$2`,
+        );
+        if (replacedExact !== sourceXml) {
+          return replacedExact;
+        }
+      }
+
+      return sourceXml.replace(
+        /(<sqlFile[^>]*\bpath=")([^"]+)(")/,
+        `$1${nextPath}$3`,
+      );
+    };
+
     if (xmlContent !== undefined) {
       updates.xmlContent = xmlContent;
     }
@@ -229,6 +260,27 @@ router.put("/changeset/:id", (req: Request, res: Response) => {
     }
     if (changeType !== undefined) {
       updates.changeType = changeType;
+    }
+    if (sqlFilePath !== undefined) {
+      updates.sqlFilePath = sqlFilePath;
+
+      if (changeset.sqlFiles && changeset.sqlFiles.length > 0) {
+        updates.sqlFiles = changeset.sqlFiles.map((file, index) =>
+          index === 0 ? { ...file, path: sqlFilePath } : file,
+        );
+      }
+
+      if (sqlFilePath) {
+        const xmlSource =
+          updates.xmlContent !== undefined
+            ? updates.xmlContent
+            : changeset.xmlContent;
+        updates.xmlContent = replaceSqlFilePathInXml(
+          xmlSource,
+          changeset.sqlFilePath,
+          sqlFilePath,
+        );
+      }
     }
 
     sessionManager.updateChangeset(id, updates);
@@ -253,13 +305,19 @@ router.put("/changeset/:id", (req: Request, res: Response) => {
  */
 router.post("/aggregate", async (req: Request, res: Response) => {
   try {
-    const { aggregatedId } = req.body;
+    const { aggregatedId, sqlMergeMode } = req.body as {
+      aggregatedId?: string;
+      sqlMergeMode?: "single" | "multiple";
+    };
 
     if (!aggregatedId) {
       return res.status(400).json({
         error: "aggregatedId is required (e.g., 'trade-124')",
       });
     }
+
+    const effectiveSqlMergeMode =
+      sqlMergeMode === "multiple" ? "multiple" : "single";
 
     const session = sessionManager.getSession();
 
@@ -274,6 +332,7 @@ router.post("/aggregate", async (req: Request, res: Response) => {
       await liquibaseGenerator.aggregateChangesetsIntelligently(
         session.changesets,
         aggregatedId,
+        effectiveSqlMergeMode,
       );
 
     // Replace changesets in session with the aggregated one
@@ -287,6 +346,88 @@ router.post("/aggregate", async (req: Request, res: Response) => {
     console.error("Aggregate error:", error);
     return res.status(500).json({
       error: error.message || "Failed to aggregate changesets",
+    });
+  }
+});
+
+/**
+ * POST /api/liquibase/reorder-renumber
+ * Reorder generated changesets and renumber IDs sequentially from the minimum current number
+ */
+router.post("/reorder-renumber", (req: Request, res: Response) => {
+  try {
+    const { orderedIds } = req.body as { orderedIds?: string[] };
+    if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+      return res.status(400).json({ error: "orderedIds is required" });
+    }
+
+    const session = sessionManager.getSession();
+    const current = session.changesets || [];
+
+    if (current.length === 0) {
+      return res.status(400).json({ error: "No changesets to reorder" });
+    }
+
+    if (orderedIds.length !== current.length) {
+      return res.status(400).json({
+        error: "orderedIds length must match existing changesets count",
+      });
+    }
+
+    const currentIdSet = new Set(current.map((cs) => cs.id));
+    const orderedIdSet = new Set(orderedIds);
+    if (
+      orderedIdSet.size !== current.length ||
+      !orderedIds.every((id) => currentIdSet.has(id))
+    ) {
+      return res
+        .status(400)
+        .json({ error: "orderedIds do not match current changesets" });
+    }
+
+    const idMatch = current[0]?.id.match(/^([a-zA-Z-]+)-(\d+)$/);
+    if (!idMatch) {
+      return res.status(400).json({
+        error: "Unable to parse changeset ID format for renumbering",
+      });
+    }
+
+    const appPrefix = idMatch[1];
+    const minNumber = current
+      .map((cs) => {
+        const match = cs.id.match(/^([a-zA-Z-]+)-(\d+)$/);
+        return match ? parseInt(match[2], 10) : Number.MAX_SAFE_INTEGER;
+      })
+      .reduce((acc, value) => Math.min(acc, value), Number.MAX_SAFE_INTEGER);
+
+    const byId = new Map(current.map((cs) => [cs.id, cs]));
+
+    const reordered = orderedIds.map((oldId, index) => {
+      const original = byId.get(oldId)!;
+      const nextId = `${appPrefix}-${minNumber + index}`;
+      const nextXml = original.xmlContent.replace(
+        /(<change[sS]et[^>]*\bid=")([^"]+)(")/,
+        `$1${nextId}$3`,
+      );
+
+      return {
+        ...original,
+        id: nextId,
+        xmlContent: nextXml,
+      };
+    });
+
+    sessionManager.setChangesets(reordered);
+
+    return res.json({
+      success: true,
+      changesets: reordered,
+      startId: reordered[0]?.id || null,
+    });
+  } catch (error: any) {
+    console.error("Reorder/renumber error:", error);
+    return res.status(500).json({
+      error: error.message || "Failed to reorder and renumber changesets",
     });
   }
 });

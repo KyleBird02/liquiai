@@ -8,6 +8,7 @@ interface SelectionStepProps {
   loading: boolean;
   error: string | null;
   onChangeSelection: (changeId: string, checked: boolean) => void;
+  onToggleSelectAll: () => void;
   onGenerateChangesets: () => Promise<void>;
 }
 
@@ -17,9 +18,49 @@ export const SelectionStep: React.FC<SelectionStepProps> = ({
   loading,
   error,
   onChangeSelection,
+  onToggleSelectAll,
   onGenerateChangesets,
 }) => {
   const navigate = useNavigate();
+  const allSelected =
+    proposedChanges.length > 0 &&
+    selectedChanges.length === proposedChanges.length;
+
+  const getPreviewText = (change: ProposedChange): string => {
+    const payload = change.payload || {};
+
+    if (change.type === "CREATE_TABLE") {
+      const cols = Array.isArray(payload.columns)
+        ? payload.columns.map((c: any) => c.name).slice(0, 6)
+        : [];
+      const columnText = cols.length > 0 ? cols.join(", ") : "no columns";
+      return `Create table preview: ${columnText}`;
+    }
+
+    if (change.type === "ALTER_TABLE") {
+      const addCount = Array.isArray(payload.addedColumns)
+        ? payload.addedColumns.length
+        : 0;
+      const removeCount = Array.isArray(payload.removedColumns)
+        ? payload.removedColumns.length
+        : 0;
+      const modifyCount = Array.isArray(payload.modifiedColumns)
+        ? payload.modifiedColumns.length
+        : 0;
+      return `Alter table preview: +${addCount} add, -${removeCount} remove, ~${modifyCount} modify`;
+    }
+
+    if (change.type === "EXECUTE_SQL") {
+      const sql = typeof payload.sql === "string" ? payload.sql : "";
+      return sql.length > 160 ? `${sql.slice(0, 160)}...` : sql;
+    }
+
+    if (change.type === "DROP_TABLE") {
+      return "Drop table preview";
+    }
+
+    return "Read-only preview available in review step";
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -52,6 +93,16 @@ export const SelectionStep: React.FC<SelectionStepProps> = ({
             </div>
           ) : (
             <div className="space-y-4">
+              <div className="flex justify-end">
+                <button
+                  onClick={onToggleSelectAll}
+                  type="button"
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-blue-300 text-blue-700 hover:bg-blue-50 transition"
+                >
+                  {allSelected ? "Clear All" : "Select All"}
+                </button>
+              </div>
+
               {proposedChanges.map((change) => (
                 <label
                   key={change.id}
@@ -71,8 +122,8 @@ export const SelectionStep: React.FC<SelectionStepProps> = ({
                       {change.payload?.tableName &&
                         ` - ${change.payload.tableName}`}
                     </p>
-                    <p className="text-sm text-gray-600 mt-1">
-                      ID: {change.id}
+                    <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap break-words">
+                      {getPreviewText(change)}
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       Status:{" "}

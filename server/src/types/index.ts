@@ -97,12 +97,21 @@ export interface ProposedChange {
   id: string;
   type: ChangeType;
   status: "pending" | "validated" | "rejected";
-  payload: CreateTablePayload | AlterTablePayload | DropTablePayload;
+  payload:
+    | CreateTablePayload
+    | AlterTablePayload
+    | DropTablePayload
+    | ExecuteSqlPayload;
   validationResult?: ValidationResult;
   createdAt: string;
   appliedLocally?: boolean;
   sqlPreview?: string;
   edited?: boolean;
+}
+
+export interface ExecuteSqlPayload {
+  sql: string;
+  fileName?: string;
 }
 
 export interface CreateTablePayload {
@@ -190,6 +199,10 @@ export interface ChangesetDefinition {
   change: ProposedChange;
   sqlFilePath: string | null; // relative path if changeType === 'sql'
   sqlFileContent: string | null; // generated SQL if changeType === 'sql'
+  sqlFiles?: Array<{
+    path: string;
+    content: string;
+  }>;
   xmlContent: string; // the full rendered changeset XML block
   targetApplication: string; // folder name e.g. "trade-service"
   targetSprint: string; // sprint folder e.g. "sprint-42"

@@ -81,18 +81,31 @@ router.get("/preview", async (req: Request, res: Response) => {
 
     // Add SQL files if any
     for (const changeset of session.changesets) {
-      if (
-        changeset.changeType === "sql" &&
-        changeset.sqlFilePath &&
-        changeset.sqlFileContent
-      ) {
+      const sqlFiles =
+        changeset.sqlFiles && changeset.sqlFiles.length > 0
+          ? changeset.sqlFiles
+          : changeset.changeType === "sql" &&
+              changeset.sqlFilePath &&
+              changeset.sqlFileContent
+            ? [
+                {
+                  path: changeset.sqlFilePath,
+                  content: changeset.sqlFileContent,
+                },
+              ]
+            : [];
+
+      sqlFiles.forEach((sqlFile, fileIndex) => {
         files.push({
-          path: changeset.sqlFilePath,
-          content: changeset.sqlFileContent,
+          path: sqlFile.path,
+          content: sqlFile.content,
           fileType: "sql-file",
-          message: `Add migration: ${changeset.id}`,
+          message:
+            sqlFiles.length > 1
+              ? `Add migration: ${changeset.id} (${fileIndex + 1}/${sqlFiles.length})`
+              : `Add migration: ${changeset.id}`,
         });
-      }
+      });
     }
 
     return res.json({
@@ -214,17 +227,30 @@ router.post("/create-pr", async (req: Request, res: Response) => {
 
     // Add SQL files
     for (const changeset of session.changesets) {
-      if (
-        changeset.changeType === "sql" &&
-        changeset.sqlFilePath &&
-        changeset.sqlFileContent
-      ) {
+      const sqlFiles =
+        changeset.sqlFiles && changeset.sqlFiles.length > 0
+          ? changeset.sqlFiles
+          : changeset.changeType === "sql" &&
+              changeset.sqlFilePath &&
+              changeset.sqlFileContent
+            ? [
+                {
+                  path: changeset.sqlFilePath,
+                  content: changeset.sqlFileContent,
+                },
+              ]
+            : [];
+
+      sqlFiles.forEach((sqlFile, fileIndex) => {
         files.push({
-          path: changeset.sqlFilePath,
-          message: `Add SQL migration: ${changeset.id}`,
-          content: changeset.sqlFileContent,
+          path: sqlFile.path,
+          message:
+            sqlFiles.length > 1
+              ? `Add SQL migration: ${changeset.id} (${fileIndex + 1}/${sqlFiles.length})`
+              : `Add SQL migration: ${changeset.id}`,
+          content: sqlFile.content,
         });
-      }
+      });
     }
 
     // Create PR via GitHub API
