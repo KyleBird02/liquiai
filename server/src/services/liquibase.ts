@@ -5,6 +5,7 @@ import {
   DropTablePayload,
   ColumnDefinition,
   ChangesetDefinition,
+  ChangeReview,
 } from "../types/index";
 import { Builder, parseString } from "xml2js";
 import { LLMFactory, LLMMessage } from "./llm";
@@ -890,18 +891,50 @@ class LiquibaseGenerator {
   ): Promise<ChangesetDefinition[]> {
     if (!changesets || changesets.length === 0) return changesets;
 
-    const payload = changesets.map((cs) => ({ id: cs.id, xml: cs.xmlContent }));
-    const systemPrompt = `You are a Database DBA reviewing Liquibase changesets for potential risks.
-For each changeset ID, identify if there are warnings (e.g. dropping columns risks data loss in higher envs, renaming columns may break APIs, changing field types).
-RETURN EXACTLY ONE VALID JSON OBJECT WITH NO COMMENTS OR STRING WRITINGS. Example format:
+    const payload = changesets.map((cs) => ({
+      id: cs.id,
+      changeType: cs.change.type,
+      xml: cs.xmlContent,
+      sqlPreview: cs.change.sqlPreview || null,
+    }));
+    const systemPrompt = `You are a senior PostgreSQL/Liquibase migration reviewer.
+
+Primary objective:
+- Flag only migration risks that are likely to fail or cause data loss/breakage in higher environments (QA/UAT/PROD) where data volume and data quality differ from DEV.
+
+Do NOT produce warnings for:
+- Style preferences, naming preferences, or readability suggestions.
+- Generic best-practice advice without concrete risk in the provided change.
+- Duplicate restatements of the same issue.
+
+Severity rules:
+- high: likely deploy failure or irreversible data loss risk.
+- medium: meaningful risk requiring reviewer attention, but not guaranteed failure.
+- low: minor but concrete operational risk (use sparingly).
+
+Risk checks to apply:
+- DROP/RENAME/MODIFY type operations affecting existing structures => usually high.
+- addColumn NOT NULL without default on existing table => high.
+- addForeignKeyConstraint on existing/populated tables => medium unless clearly unsafe/high.
+- SQL data changes:
+  - UPDATE/DELETE without restrictive predicate => high.
+  - INSERT with explicit values is usually safe and should not be warned by default.
+- Multiple dependent operations where ordering in the same changeset is risky => medium/high.
+
+Output requirements:
+- Return ONLY valid JSON.
+- Include warnings only when actionable and specific.
+- Each message must mention concrete table/column/operation evidence from the change.
+- If no actionable risk for a changeset, return an empty array for that changeset.
+
+Required JSON shape:
 {
   "reviews": {
     "changeset_id_here": [
-      { "severity": "medium", "message": "..." }
+      { "severity": "medium", "message": "Concrete risk with evidence and why it matters in higher envs." }
     ]
   }
-}
-DO NOT WRAP YOUR RESPONSE IN \`\`\`json. OUTPUT ONLY RAW JSON.`;
+}`;
 
     const userPrompt = `Review these changesets:\n${JSON.stringify(payload, null, 2)}`;
 
@@ -912,7 +945,11 @@ DO NOT WRAP YOUR RESPONSE IN \`\`\`json. OUTPUT ONLY RAW JSON.`;
 
     try {
       const provider = LLMFactory.getProvider();
-      let responseText = await provider.generateCompletion(messages);
+      let responseText = await provider.generateCompletion(messages, {
+        temperature: 0,
+        maxTokens: 1800,
+        enableReasoning: false,
+      });
 
       responseText = responseText
         .replace(/^```[a-zA-Z]*\n/, "")
@@ -922,12 +959,44 @@ DO NOT WRAP YOUR RESPONSE IN \`\`\`json. OUTPUT ONLY RAW JSON.`;
       const parsed = JSON.parse(responseText);
       const reviewsMap = parsed.reviews || {};
 
+      const validSeverities = new Set(["low", "medium", "high"]);
+      const isActionable = (message: unknown): message is string => {
+        if (typeof message !== "string") return false;
+        const normalized = message.trim();
+        if (normalized.length < 30) return false;
+
+        const vaguePattern =
+          /^(consider|maybe|might|could|optional|nice to have|style|formatting)\b/i;
+        if (vaguePattern.test(normalized)) return false;
+
+        const evidencePattern =
+          /(table|column|constraint|foreign key|drop|rename|modify|not null|default|update|delete|insert|changeset)/i;
+        return evidencePattern.test(normalized);
+      };
+
       return changesets.map((cs) => {
-        if (reviewsMap[cs.id]) {
-          cs.reviews = reviewsMap[cs.id];
-        } else {
-          cs.reviews = [];
-        }
+        const rawReviews = Array.isArray(reviewsMap[cs.id])
+          ? reviewsMap[cs.id]
+          : [];
+
+        const normalizedReviews: ChangeReview[] = rawReviews
+          .filter((r: any) => r && validSeverities.has(r.severity))
+          .map((r: any) => ({
+            severity: r.severity as "low" | "medium" | "high",
+            message: typeof r.message === "string" ? r.message.trim() : "",
+          }))
+          .filter((r: ChangeReview) => isActionable(r.message));
+
+        const dedupedReviews: ChangeReview[] = Array.from(
+          new Map(
+            normalizedReviews.map((r: ChangeReview) => [
+              `${r.severity}::${r.message.toLowerCase()}`,
+              r,
+            ]),
+          ).values(),
+        );
+
+        cs.reviews = dedupedReviews;
         return cs;
       });
     } catch (e) {

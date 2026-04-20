@@ -1,5 +1,4 @@
 import React from "react";
-import { useNavigate } from "react-router-dom";
 import { ChangesetDefinition } from "@/types";
 import { ChangesetCard } from "../ChangesetCard/ChangesetCard";
 
@@ -8,9 +7,12 @@ interface ReviewStepProps {
   startId: string;
   loading: boolean;
   error: string | null;
+  preflightStale: boolean;
   onBack: () => void;
   onAggregate: () => Promise<void>;
   onReorder: (orderedIds: string[]) => Promise<void>;
+  onRetriggerPreflight: () => Promise<void>;
+  onProceed: () => Promise<void>;
   onUpdate: (updated: ChangesetDefinition) => void;
 }
 
@@ -19,12 +21,14 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
   startId,
   loading,
   error,
+  preflightStale,
   onBack,
   onAggregate,
   onReorder,
+  onRetriggerPreflight,
+  onProceed,
   onUpdate,
 }) => {
-  const navigate = useNavigate();
   const [dragIndex, setDragIndex] = React.useState<number | null>(null);
 
   const handleDrop = async (targetIndex: number) => {
@@ -202,7 +206,18 @@ export const ReviewStep: React.FC<ReviewStepProps> = ({
             </button>
           )}
           <button
-            onClick={() => navigate("/liquibase/preview")}
+            onClick={() => void onRetriggerPreflight()}
+            disabled={loading || !preflightStale}
+            className="flex-1 bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 disabled:bg-gray-400 font-medium"
+          >
+            {loading
+              ? "Running Preflight..."
+              : preflightStale
+                ? "Retrigger Preflight"
+                : "Preflight Up To Date"}
+          </button>
+          <button
+            onClick={() => void onProceed()}
             className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 font-medium"
           >
             Preview Files & Create PR

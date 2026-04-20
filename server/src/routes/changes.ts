@@ -710,15 +710,18 @@ Response schema:
         return !forbiddenVerbPattern.test(normalized);
       };
 
-      for (const entry of requestedSqlEntries) {
-        const sql = entry.sql.trim();
-        if (!sql) continue;
+      const extractInsertStatements = (statement: string): string[] => {
+        const sql = stripLeadingSqlNoise(statement);
+        if (!sql) return [];
 
-        if (!isInsertOnlyDataSql(sql)) {
-          invalidSqlStatements.push(sql);
-          continue;
-        }
+        // Capture INSERT blocks up to semicolon (supports multi-line VALUES batches).
+        const matches =
+          sql.match(/insert\s+into[\s\S]*?;/gi)?.map((s) => s.trim()) || [];
 
+        return matches.filter((s) => s.length > 0);
+      };
+
+      const addStatementToGroup = (sql: string, fileName?: string) => {
         const targetTable = extractInsertTable(sql);
         if (targetTable) {
           const existsInSnapshotOrPending =
@@ -728,7 +731,7 @@ Response schema:
 
           if (!existsInSnapshotOrPending) {
             unknownSqlTables.push(targetTable);
-            continue;
+            return;
           }
         }
 
@@ -737,22 +740,46 @@ Response schema:
         if (!existingGroup) {
           sqlGroupsByTable.set(groupKey, {
             statements: [sql],
-            fileName: entry.fileName,
+            fileName,
             hasMixedFileName: false,
           });
         } else {
           existingGroup.statements.push(sql);
           if (
-            entry.fileName &&
+            fileName &&
             existingGroup.fileName &&
-            existingGroup.fileName !== entry.fileName
+            existingGroup.fileName !== fileName
           ) {
             existingGroup.hasMixedFileName = true;
           }
-          if (!existingGroup.fileName && entry.fileName) {
-            existingGroup.fileName = entry.fileName;
+          if (!existingGroup.fileName && fileName) {
+            existingGroup.fileName = fileName;
           }
         }
+      };
+
+      for (const entry of requestedSqlEntries) {
+        const sql = entry.sql.trim();
+        if (!sql) continue;
+
+        if (isInsertOnlyDataSql(sql)) {
+          addStatementToGroup(sql, entry.fileName);
+          continue;
+        }
+
+        // Auto-recover mixed SQL: keep only INSERT statements and discard unsafe ones.
+        const recoveredInserts = extractInsertStatements(sql).filter((s) =>
+          isInsertOnlyDataSql(s),
+        );
+
+        if (recoveredInserts.length === 0) {
+          invalidSqlStatements.push(sql);
+          continue;
+        }
+
+        recoveredInserts.forEach((insertSql) => {
+          addStatementToGroup(insertSql, entry.fileName);
+        });
       }
 
       sqlGroupsByTable.forEach((group) => {

@@ -512,6 +512,15 @@ export const liquibaseAPI = {
       return handleError(error as AxiosError);
     }
   },
+
+  async retriggerPreflight() {
+    try {
+      const response = await apiClient.post("/liquibase/retrigger-preflight");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
 };
 
 // GitHub endpoints (Phase 2)

@@ -432,6 +432,30 @@ router.post("/reorder-renumber", (req: Request, res: Response) => {
   }
 });
 
+router.post("/retrigger-preflight", async (req: Request, res: Response) => {
+  try {
+    const session = sessionManager.getSession();
+    const current = session.changesets || [];
+
+    if (current.length === 0) {
+      return res.status(400).json({ error: "No changesets to review" });
+    }
+
+    const reviewed = await liquibaseGenerator.reviewChangesets(current);
+    sessionManager.setChangesets(reviewed);
+
+    return res.json({
+      success: true,
+      changesets: reviewed,
+    });
+  } catch (error: any) {
+    console.error("Retrigger preflight error:", error);
+    return res.status(500).json({
+      error: error.message || "Failed to retrigger preflight",
+    });
+  }
+});
+
 /**
  * GET /api/liquibase/changesets
  * List all generated changesets in the current session

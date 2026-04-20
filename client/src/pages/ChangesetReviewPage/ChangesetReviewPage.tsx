@@ -3,8 +3,10 @@ import { liquibaseAPI } from "@/api";
 import { ChangesetDefinition, ProposedChange } from "@/types";
 import { SelectionStep } from "./SelectionStep/SelectionStep";
 import { ReviewStep } from "./ReviewStep/ReviewStep";
+import { useNavigate } from "react-router-dom";
 
 const ChangesetReviewPage: React.FC = () => {
+  const navigate = useNavigate();
   const [session, setSession] = useState<any>(null);
   const [changesets, setChangesets] = useState<ChangesetDefinition[]>([]);
   const [proposedChanges, setProposedChanges] = useState<ProposedChange[]>([]);
@@ -17,6 +19,7 @@ const ChangesetReviewPage: React.FC = () => {
   const [pendingAggregateId, setPendingAggregateId] = useState<string | null>(
     null,
   );
+  const [preflightStale, setPreflightStale] = useState(false);
 
   useEffect(() => {
     loadSession();
@@ -30,6 +33,7 @@ const ChangesetReviewPage: React.FC = () => {
 
       if (result.changesets && result.changesets.length > 0) {
         setChangesets(result.changesets);
+        setPreflightStale(false);
         if (result.proposedChanges && result.proposedChanges.length > 0) {
           setSelectedChanges(result.proposedChanges.map((c: any) => c.id));
         }
@@ -83,6 +87,7 @@ const ChangesetReviewPage: React.FC = () => {
 
       if (result?.changesets) {
         setChangesets(result.changesets);
+        setPreflightStale(true);
       }
       if (result?.startId) {
         setStartId(result.startId);
@@ -142,6 +147,7 @@ const ChangesetReviewPage: React.FC = () => {
       }
 
       setChangesets(genResult.changesets);
+      setPreflightStale(false);
       setStep("review");
     } catch (err: any) {
       setError("Error: " + (err.message || "Unknown error"));
@@ -187,6 +193,7 @@ const ChangesetReviewPage: React.FC = () => {
         setError("Failed to aggregate: " + result.error);
       } else {
         setChangesets(result.changesets);
+        setPreflightStale(true);
       }
     } catch (err: any) {
       setError("Error aggregating changesets: " + err.message);
@@ -194,6 +201,59 @@ const ChangesetReviewPage: React.FC = () => {
       setLoading(false);
       setShowSqlMergeModal(false);
       setPendingAggregateId(null);
+    }
+  };
+
+  const handleRetriggerPreflight = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await liquibaseAPI.retriggerPreflight();
+      if (result?.error) {
+        setError("Failed to retrigger preflight: " + result.error);
+        return;
+      }
+
+      if (result?.changesets) {
+        setChangesets(result.changesets);
+      }
+      setPreflightStale(false);
+    } catch (err: any) {
+      setError(
+        "Failed to retrigger preflight: " + (err.message || "Unknown error"),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleProceedToPreview = async () => {
+    setError(null);
+
+    if (!preflightStale) {
+      navigate("/liquibase/preview");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await liquibaseAPI.retriggerPreflight();
+      if (result?.error) {
+        setError("Failed to retrigger preflight: " + result.error);
+        return;
+      }
+
+      if (result?.changesets) {
+        setChangesets(result.changesets);
+      }
+      setPreflightStale(false);
+      navigate("/liquibase/preview");
+    } catch (err: any) {
+      setError(
+        "Failed to retrigger preflight: " + (err.message || "Unknown error"),
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -218,13 +278,17 @@ const ChangesetReviewPage: React.FC = () => {
         startId={startId}
         loading={loading}
         error={error}
+        preflightStale={preflightStale}
         onBack={() => {
           setStep("select");
           setChangesets([]);
           setSelectedChanges([]);
+          setPreflightStale(false);
         }}
         onAggregate={handleAggregate}
         onReorder={handleReorderChangesets}
+        onRetriggerPreflight={handleRetriggerPreflight}
+        onProceed={handleProceedToPreview}
         onUpdate={(updated) => {
           setChangesets((prev) =>
             prev.map((c) => (c.id === updated.id ? updated : c)),
