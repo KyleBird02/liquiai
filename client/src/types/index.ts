@@ -215,6 +215,34 @@ export interface ChangesetBatch {
   prDescription: string;
 }
 
+export interface SyncResult {
+  status: "success" | "failed";
+  changesetsBehind: number;
+  errorMessage: string | null;
+}
+
+export interface ValidateResult {
+  passed: boolean;
+  errors: string[];
+}
+
+export interface ChangesetExecutionResult {
+  changesetId: string;
+  status: "pending" | "running" | "success" | "failed" | "skipped";
+  errorMessage: string | null;
+  executedAt: string | null;
+}
+
+export interface ExecutionResult {
+  status: "idle" | "syncing" | "validating" | "running" | "success" | "failed";
+  syncResult: SyncResult | null;
+  validateResult: ValidateResult | null;
+  changesetResults: ChangesetExecutionResult[];
+  lockStatus: "free" | "locked";
+  canForceUnlock: boolean;
+  prUnlocked: boolean;
+}
+
 export interface Phase2Session {
   author: string;
   targetApplication: string;
@@ -222,6 +250,7 @@ export interface Phase2Session {
   branchName?: string;
   proposedChanges: ProposedChange[];
   changesets: ChangesetDefinition[];
+  executionResult?: ExecutionResult;
   batch?: ChangesetBatch;
 }
 

@@ -4,6 +4,7 @@ import type {
   ProposedChange,
   SchemaDiff,
   ValidationResult,
+  ExecutionResult,
 } from "@/types/index";
 
 const API_BASE = "/api";
@@ -612,6 +613,53 @@ export const githubAPI = {
   },
 };
 
+export const executionAPI = {
+  async getStatus() {
+    try {
+      const response = await apiClient.get("/execution/status");
+      return response.data as ExecutionResult;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  async syncLocal() {
+    try {
+      const response = await apiClient.post("/execution/sync-local");
+      return response.data as ExecutionResult;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  async validate() {
+    try {
+      const response = await apiClient.post("/execution/validate");
+      return response.data as ExecutionResult;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  async run() {
+    try {
+      const response = await apiClient.post("/execution/run");
+      return response.data as ExecutionResult;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  async forceUnlock() {
+    try {
+      const response = await apiClient.post("/execution/force-unlock");
+      return response.data as ExecutionResult;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+};
+
 // Health check
 export const healthCheck = async () => {
   try {
@@ -627,5 +675,6 @@ export default {
   changes: changesAPI,
   liquibase: liquibaseAPI,
   github: githubAPI,
+  execution: executionAPI,
   healthCheck,
 };

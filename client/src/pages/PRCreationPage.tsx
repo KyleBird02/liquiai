@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { githubAPI, liquibaseAPI } from "@/api";
-import { ChangesetDefinition } from "@/types";
+import { executionAPI, githubAPI, liquibaseAPI } from "@/api";
+import { ChangesetDefinition, ExecutionResult } from "@/types";
 import { Loader2, Sparkles } from "lucide-react";
 
 const PRCreationPage: React.FC = () => {
@@ -16,11 +16,118 @@ const PRCreationPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [prResult, setPrResult] = useState<any>(null);
+  const [execution, setExecution] = useState<ExecutionResult | null>(null);
+  const [executionLoading, setExecutionLoading] = useState(false);
+  const [executionError, setExecutionError] = useState<string | null>(null);
 
   useEffect(() => {
     loadChangesets();
+    loadExecutionStatus();
     void githubAPI.preparePRAppendix();
   }, []);
+
+  const loadExecutionStatus = async () => {
+    try {
+      const result = await executionAPI.getStatus();
+      if ((result as any)?.error) {
+        setExecutionError((result as any).error);
+        return;
+      }
+
+      setExecution(result as ExecutionResult);
+    } catch (err: any) {
+      setExecutionError(
+        "Failed to load execution status: " + (err.message || "Unknown error"),
+      );
+    }
+  };
+
+  const runExecutionFlow = async () => {
+    setExecutionError(null);
+    setExecutionLoading(true);
+
+    try {
+      const syncResult = await executionAPI.syncLocal();
+      if ((syncResult as any)?.error) {
+        setExecution(syncResult as ExecutionResult);
+        setExecutionError((syncResult as any).error);
+        return;
+      }
+
+      setExecution(syncResult as ExecutionResult);
+
+      const validateResult = await executionAPI.validate();
+      if ((validateResult as any)?.error) {
+        setExecution(validateResult as ExecutionResult);
+        setExecutionError((validateResult as any).error);
+        return;
+      }
+
+      setExecution(validateResult as ExecutionResult);
+
+      const runResult = await executionAPI.run();
+      setExecution(runResult as ExecutionResult);
+
+      if ((runResult as any)?.error) {
+        setExecutionError((runResult as any).error);
+      }
+    } catch (err: any) {
+      setExecutionError(
+        "Validate & Run failed: " + (err.message || "Unknown error"),
+      );
+    } finally {
+      setExecutionLoading(false);
+    }
+  };
+
+  const handleForceUnlock = async () => {
+    setExecutionError(null);
+    setExecutionLoading(true);
+
+    try {
+      const result = await executionAPI.forceUnlock();
+      if ((result as any)?.error) {
+        setExecutionError((result as any).error);
+        return;
+      }
+
+      setExecution(result as ExecutionResult);
+    } catch (err: any) {
+      setExecutionError(
+        "Force unlock failed: " + (err.message || "Unknown error"),
+      );
+    } finally {
+      setExecutionLoading(false);
+    }
+  };
+
+  const stepState = {
+    sync:
+      execution?.status === "syncing"
+        ? "running"
+        : execution?.syncResult?.status === "success"
+          ? "success"
+          : execution?.status === "failed" &&
+              execution?.syncResult?.status === "failed"
+            ? "failed"
+            : "pending",
+    validate:
+      execution?.status === "validating"
+        ? "running"
+        : execution?.validateResult?.passed
+          ? "success"
+          : execution?.validateResult && !execution.validateResult.passed
+            ? "failed"
+            : "pending",
+    execute:
+      execution?.status === "running"
+        ? "running"
+        : execution?.status === "success"
+          ? "success"
+          : execution?.status === "failed" && execution?.validateResult?.passed
+            ? "failed"
+            : "pending",
+  } as const;
 
   const loadChangesets = async () => {
     try {
@@ -184,6 +291,116 @@ const PRCreationPage: React.FC = () => {
           </div>
         )}
 
+        <div className="mb-6 bg-white rounded-lg shadow-md p-6 border border-gray-200">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                Validate & Run Locally
+              </h2>
+              <p className="text-sm text-gray-600">
+                PR creation is unlocked only after Sync, Validate, and Execute
+                all succeed.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={runExecutionFlow}
+              disabled={executionLoading || changesets.length === 0}
+              className="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:bg-gray-400 font-medium"
+            >
+              {executionLoading ? "Running..." : "Validate & Run Locally"}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div className="rounded border border-gray-200 p-3">
+              <p className="text-xs text-gray-500">Sync</p>
+              <p className="font-semibold text-gray-900 capitalize">
+                {stepState.sync}
+              </p>
+            </div>
+            <div className="rounded border border-gray-200 p-3">
+              <p className="text-xs text-gray-500">Validate</p>
+              <p className="font-semibold text-gray-900 capitalize">
+                {stepState.validate}
+              </p>
+            </div>
+            <div className="rounded border border-gray-200 p-3">
+              <p className="text-xs text-gray-500">Execute</p>
+              <p className="font-semibold text-gray-900 capitalize">
+                {stepState.execute}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded border border-gray-200 p-3 mb-3">
+            <div>
+              <p className="text-xs text-gray-500">PR Status</p>
+              <p className="font-semibold text-gray-900">
+                {execution?.prUnlocked ? "Unlocked" : "Locked"}
+              </p>
+            </div>
+            {execution?.canForceUnlock && (
+              <button
+                type="button"
+                onClick={handleForceUnlock}
+                disabled={executionLoading}
+                className="bg-amber-600 text-white py-1.5 px-3 rounded-md hover:bg-amber-700 disabled:bg-gray-400 text-sm font-medium"
+              >
+                Force Unlock
+              </button>
+            )}
+          </div>
+
+          {execution?.validateResult && !execution.validateResult.passed && (
+            <div className="mb-3 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+              <p className="font-semibold mb-1">Validation errors</p>
+              <ul className="list-disc pl-5 space-y-1">
+                {execution.validateResult.errors.map((item, index) => (
+                  <li key={`${item}-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {executionError && (
+            <div className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+              {executionError}
+            </div>
+          )}
+
+          {execution?.changesetResults &&
+            execution.changesetResults.length > 0 && (
+              <div className="mt-3">
+                <p className="text-sm font-medium text-gray-900 mb-2">
+                  Changeset execution
+                </p>
+                <div className="space-y-2 max-h-44 overflow-auto pr-1">
+                  {execution.changesetResults.map((result) => (
+                    <div
+                      key={result.changesetId}
+                      className="rounded border border-gray-200 px-3 py-2 text-sm"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-gray-800">
+                          {result.changesetId}
+                        </span>
+                        <span className="capitalize text-gray-700">
+                          {result.status}
+                        </span>
+                      </div>
+                      {result.errorMessage && (
+                        <p className="mt-1 text-xs text-red-700">
+                          {result.errorMessage}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+        </div>
+
         <form
           onSubmit={handleSubmit}
           className="bg-white rounded-lg shadow-md p-8 space-y-6"
@@ -261,10 +478,19 @@ const PRCreationPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={loading || !formData.prTitle || !formData.prDescription}
+              disabled={
+                loading ||
+                !formData.prTitle ||
+                !formData.prDescription ||
+                !execution?.prUnlocked
+              }
               className="flex-1 bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 disabled:bg-gray-400 font-medium transition-colors"
             >
-              {loading ? "Creating PR..." : "Create Pull Request"}
+              {loading
+                ? "Creating PR..."
+                : execution?.prUnlocked
+                  ? "Create Pull Request"
+                  : "Create Pull Request (Locked)"}
             </button>
           </div>
         </form>

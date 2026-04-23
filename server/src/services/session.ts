@@ -2,8 +2,19 @@ import {
   Phase2Session,
   ProposedChange,
   ChangesetDefinition,
+  ExecutionResult,
 } from "../types/index";
 import { v4 as uuidv4 } from "uuid";
+
+const createDefaultExecutionResult = (): ExecutionResult => ({
+  status: "idle",
+  syncResult: null,
+  validateResult: null,
+  changesetResults: [],
+  lockStatus: "free",
+  canForceUnlock: false,
+  prUnlocked: false,
+});
 
 /**
  * Session manager for Phase 2 workflow
@@ -48,6 +59,9 @@ class SessionManager {
           branchName,
           changesets: clearChangesets ? [] : existing.changesets,
           proposedChanges: clearChangesets ? [] : existing.proposedChanges,
+          executionResult: clearChangesets
+            ? createDefaultExecutionResult()
+            : existing.executionResult || createDefaultExecutionResult(),
         }
       : {
           author,
@@ -56,6 +70,7 @@ class SessionManager {
           branchName,
           proposedChanges: [],
           changesets: [],
+          executionResult: createDefaultExecutionResult(),
         };
 
     this.sessions.set(sessionId, session);
@@ -75,6 +90,7 @@ class SessionManager {
         targetSprint: "",
         proposedChanges: [],
         changesets: [],
+        executionResult: createDefaultExecutionResult(),
       };
     }
 
@@ -90,6 +106,7 @@ class SessionManager {
 
     session.proposedChanges.push(...changes);
     session.prReviewerAppendix = undefined;
+    session.executionResult = createDefaultExecutionResult();
     this.sessions.set(sessionId, session);
 
     return session;
@@ -104,6 +121,7 @@ class SessionManager {
 
     session.proposedChanges = [...changes];
     session.prReviewerAppendix = undefined;
+    session.executionResult = createDefaultExecutionResult();
     this.sessions.set(sessionId, session);
 
     return session;
@@ -118,6 +136,7 @@ class SessionManager {
 
     session.changesets.push(...changesets);
     session.prReviewerAppendix = undefined;
+    session.executionResult = createDefaultExecutionResult();
     this.sessions.set(sessionId, session);
 
     return session;
@@ -141,6 +160,7 @@ class SessionManager {
         edited: true,
       };
       session.prReviewerAppendix = undefined;
+      session.executionResult = createDefaultExecutionResult();
     }
 
     this.sessions.set(sessionId, session);
@@ -156,6 +176,7 @@ class SessionManager {
 
     session.changesets = [...changesets];
     session.prReviewerAppendix = undefined;
+    session.executionResult = createDefaultExecutionResult();
     this.sessions.set(sessionId, session);
 
     return session;
@@ -172,6 +193,24 @@ class SessionManager {
     this.sessions.set(sessionId, session);
 
     return session;
+  }
+
+  setExecutionResult(executionResult: ExecutionResult): Phase2Session {
+    const sessionId = this.getSessionId();
+    const session = this.getSession();
+
+    session.executionResult = executionResult;
+    this.sessions.set(sessionId, session);
+
+    return session;
+  }
+
+  getExecutionResult(): ExecutionResult {
+    return this.getSession().executionResult || createDefaultExecutionResult();
+  }
+
+  resetExecutionState(): Phase2Session {
+    return this.setExecutionResult(createDefaultExecutionResult());
   }
 
   /**

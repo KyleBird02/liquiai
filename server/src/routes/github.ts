@@ -412,6 +412,13 @@ router.post("/create-pr", async (req: Request, res: Response) => {
       });
     }
 
+    if (!session.executionResult?.prUnlocked) {
+      return res.status(403).json({
+        error:
+          "PR creation is locked until local sync, validate, and execution succeed",
+      });
+    }
+
     // Fetch current changeset.xml from GitHub
     const branch = session.branchName || `OCDEV-${session.author}`;
 
