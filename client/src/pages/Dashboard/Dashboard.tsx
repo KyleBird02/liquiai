@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ConnectionForm } from "@/components/ConnectionForm";
 import { Layers } from "lucide-react";
 
-export const Dashboard: React.FC = () => {
+export const Dashboard = () => {
   const navigate = useNavigate();
 
   const handleConnected = () => {

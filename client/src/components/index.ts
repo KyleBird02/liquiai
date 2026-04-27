@@ -11,18 +11,30 @@
 
 export { ConnectionForm } from "./ConnectionForm";
 export { Navigation } from "./Navigation";
-export { SchemaViewer } from "./SchemaViewer";
-export { CreateTableModal } from "./CreateTableModal";
-export { ColumnDetailsTab } from "./ColumnDetailsTab";
-export { AddColumnModal } from "./AddColumnModal";
+export {
+  SchemaViewer,
+  CreateTableModal,
+  ColumnDetailsTab,
+  AddColumnModal,
+  AIAssistantModal,
+} from "./schemaPage";
 export { AlertModal } from "./AlertModal";
-export { AIAssistantModal } from "./AIAssistantModal";
 
 // Grid Config components
-export { default as GridEditor } from "./grid/GridEditor";
-export { default as GridColumnList } from "./grid/GridColumnList";
-export { default as GridPreview } from "./grid/GridPreview";
-export { default as AIAssistantPanel } from "./grid/AIAssistantPanel";
+export { GridEditor } from "./gridConfigPage";
+export { GridColumnList } from "./gridConfigPage";
+export { GridPreview } from "./gridConfigPage";
+export { AIAssistantPanel } from "./gridConfigPage";
+
+// Changes page components
+export { ChangeItemActions, PayloadRenderer } from "./changesPage";
+
+// Changeset review components
+export {
+  SelectionStep,
+  ReviewStep,
+  ChangesetCard,
+} from "./changesetReviewPage";
 
 // ValidationPanel.tsx - Show validation errors/warnings from changes
 // ChangesetViewer.tsx - Display generated Liquibase XML changeset

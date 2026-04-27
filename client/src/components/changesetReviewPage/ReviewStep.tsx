@@ -1,6 +1,6 @@
 import React from "react";
 import { ChangesetDefinition } from "@/types";
-import { ChangesetCard } from "../ChangesetCard/ChangesetCard";
+import { ChangesetCard } from "./ChangesetCard";
 
 interface ReviewStepProps {
   changesets: ChangesetDefinition[];

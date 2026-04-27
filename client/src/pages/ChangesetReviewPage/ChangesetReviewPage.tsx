@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { liquibaseAPI } from "@/api";
 import { ChangesetDefinition, ProposedChange } from "@/types";
-import { SelectionStep } from "./SelectionStep/SelectionStep";
-import { ReviewStep } from "./ReviewStep/ReviewStep";
+import { ChangesetReviewStep, SqlMergeMode } from "./types";
+import { SelectionStep, ReviewStep } from "@/components/changesetReviewPage";
 import { useNavigate } from "react-router-dom";
 
-const ChangesetReviewPage: React.FC = () => {
+export const ChangesetReviewPage: React.FC = () => {
   const navigate = useNavigate();
   const [session, setSession] = useState<any>(null);
   const [changesets, setChangesets] = useState<ChangesetDefinition[]>([]);
@@ -14,7 +14,7 @@ const ChangesetReviewPage: React.FC = () => {
   const [startId, setStartId] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<"select" | "review">("select");
+  const [step, setStep] = useState<ChangesetReviewStep>("select");
   const [showSqlMergeModal, setShowSqlMergeModal] = useState(false);
   const [pendingAggregateId, setPendingAggregateId] = useState<string | null>(
     null,
@@ -177,7 +177,7 @@ const ChangesetReviewPage: React.FC = () => {
     setShowSqlMergeModal(true);
   };
 
-  const runAggregate = async (sqlMergeMode: "single" | "multiple") => {
+  const runAggregate = async (sqlMergeMode: SqlMergeMode) => {
     if (!pendingAggregateId) {
       setShowSqlMergeModal(false);
       return;
@@ -342,5 +342,3 @@ const ChangesetReviewPage: React.FC = () => {
     </>
   );
 };
-
-export default ChangesetReviewPage;

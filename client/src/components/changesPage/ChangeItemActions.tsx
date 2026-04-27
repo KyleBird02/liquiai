@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ProposedChange } from "@/types/index";
 import { changesAPI } from "@/api/index";
 import { Loader2 } from "lucide-react";
-import { PayloadRenderer } from "../PayloadRenderer/PayloadRenderer";
+import { PayloadRenderer } from "./PayloadRenderer";
 
 interface ChangeItemActionsProps {
   change: ProposedChange;

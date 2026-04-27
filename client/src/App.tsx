@@ -2,14 +2,16 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Navigation } from "./components/Navigation";
 import { AlertProvider } from "./hooks/index";
-import { SchemaPage } from "./pages/SchemaPage";
-import { ChangesPage } from "./pages/ChangesPage/ChangesPage";
-import LiquibaseSetupPage from "./pages/LiquibaseSetupPage";
-import ChangesetReviewPage from "./pages/ChangesetReviewPage/ChangesetReviewPage";
-import FilePreviewPage from "./pages/FilePreviewPage";
-import PRCreationPage from "./pages/PRCreationPage";
+import {
+  SchemaPage,
+  ChangesPage,
+  LiquibaseSetupPage,
+  ChangesetReviewPage,
+  FilePreviewPage,
+  PRCreationPage,
+  GridConfigPage,
+} from "./pages";
 import "./index.css";
-import GridConfigPage from "./pages/GridConfigPage";
 
 function AppContent() {
   return (

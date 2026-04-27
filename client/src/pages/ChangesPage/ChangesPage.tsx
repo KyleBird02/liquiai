@@ -4,17 +4,15 @@ import { useAlertContext } from "@/hooks/AlertContext";
 import { schemaAPI, changesAPI } from "@/api/index";
 import { ProposedChange } from "@/types/index";
 import { Loader2, Trash2 } from "lucide-react";
-import { ChangeItemActions } from "./ChangeItemActions/ChangeItemActions";
-
-interface DBConfig {
-  dev: string;
-  local: string;
-}
+import { ChangeItemActions } from "@/components/changesPage";
+import { ChangesPageConnectionStrings } from "./types";
 
 export const ChangesPage: React.FC = () => {
   const { changes, loading, error, list, apply, remove } = useProposedChanges();
   const alertContext = useAlertContext();
-  const [config, setConfig] = useState<DBConfig | null>(null);
+  const [config, setConfig] = useState<ChangesPageConnectionStrings | null>(
+    null,
+  );
   const [applying, setApplying] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
@@ -24,7 +22,7 @@ export const ChangesPage: React.FC = () => {
     // Load config for connection strings
     schemaAPI.getConfig().then((cfg) => {
       if (cfg && !("error" in cfg)) {
-        setConfig(cfg as DBConfig);
+        setConfig(cfg as ChangesPageConnectionStrings);
       }
     });
   }, [list]);

@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { githubAPI, liquibaseAPI } from "@/api";
 import { ChangesetDefinition } from "@/types";
 import { Loader2, Sparkles } from "lucide-react";
+import { PRCreationFormData } from "./types";
 
-const PRCreationPage: React.FC = () => {
+export const PRCreationPage: React.FC = () => {
   const navigate = useNavigate();
   const [changesets, setChangesets] = useState<ChangesetDefinition[]>([]);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<PRCreationFormData>({
     prTitle: "",
     prDescription: "",
   });
@@ -272,5 +273,3 @@ const PRCreationPage: React.FC = () => {
     </div>
   );
 };
-
-export default PRCreationPage;

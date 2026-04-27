@@ -2,11 +2,12 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { githubAPI } from "@/api";
 import { GitHubFileChange } from "@/types";
+import { FilePreviewSummary } from "./types";
 
-const FilePreviewPage: React.FC = () => {
+export const FilePreviewPage: React.FC = () => {
   const navigate = useNavigate();
   const [files, setFiles] = useState<GitHubFileChange[]>([]);
-  const [summary, setSummary] = useState<any>(null);
+  const [summary, setSummary] = useState<FilePreviewSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
@@ -213,5 +214,3 @@ const FilePreviewPage: React.FC = () => {
     </div>
   );
 };
-
-export default FilePreviewPage;

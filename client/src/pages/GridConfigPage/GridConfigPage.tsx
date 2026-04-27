@@ -5,14 +5,10 @@ import { ModuleRegistry, AllCommunityModule } from "ag-grid-community";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-import { Grid, GridConfig, GridAttributeWithMeta } from "../types";
-import { gridAPI, changesAPI, schemaAPI } from "../api";
-import GridEditor from "../components/grid/GridEditor";
-
-interface DBConfig {
-  dev: string;
-  local: string;
-}
+import { Grid, GridConfig, GridAttributeWithMeta } from "@/types";
+import { gridAPI, changesAPI, schemaAPI } from "@/api";
+import { GridEditor } from "@/components/gridConfigPage";
+import { GridConfigPageConnectionStrings } from "./types";
 
 const buildGridBundleSql = (gridName: string, diff: any) => {
   const lines: string[] = [
@@ -39,7 +35,9 @@ const buildGridBundleSql = (gridName: string, diff: any) => {
 
 export const GridConfigPage: React.FC = () => {
   const [grids, setGrids] = useState<Grid[]>([]);
-  const [config, setConfig] = useState<DBConfig | null>(null);
+  const [config, setConfig] = useState<GridConfigPageConnectionStrings | null>(
+    null,
+  );
   const [selectedEnv, setSelectedEnv] = useState<"dev" | "local">("local");
   const [selectedGridId, setSelectedGridId] = useState<number | null>(null);
   const [currentConfig, setCurrentConfig] = useState<GridConfig | null>(null);
@@ -85,9 +83,10 @@ export const GridConfigPage: React.FC = () => {
         setLoading(true);
         const cfg = await schemaAPI.getConfig();
         if (cfg && !("error" in cfg)) {
-          setConfig(cfg as DBConfig);
+          setConfig(cfg as GridConfigPageConnectionStrings);
 
-          const localConnection = (cfg as DBConfig).local;
+          const localConnection = (cfg as GridConfigPageConnectionStrings)
+            .local;
           if (localConnection) {
             await schemaAPI.connect(localConnection);
           }
@@ -566,5 +565,3 @@ export const GridConfigPage: React.FC = () => {
     </div>
   );
 };
-
-export default GridConfigPage;

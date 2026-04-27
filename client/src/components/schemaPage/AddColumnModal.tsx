@@ -4,7 +4,7 @@ import {
   ColumnDefinition,
   ForeignKeyDefinition,
   TableDefinition,
-} from "../types";
+} from "@/types";
 
 interface AddColumnModalProps {
   isOpen: boolean;

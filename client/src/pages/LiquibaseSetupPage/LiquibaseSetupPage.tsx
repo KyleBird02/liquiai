@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { liquibaseAPI, githubAPI, schemaAPI } from "@/api";
+import { LiquibaseSetupFormData } from "./types";
 
-const LiquibaseSetupPage: React.FC = () => {
+export const LiquibaseSetupPage: React.FC = () => {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<LiquibaseSetupFormData>({
     author: "",
     targetApplication: "",
     targetSprint: "",
@@ -295,5 +296,3 @@ const LiquibaseSetupPage: React.FC = () => {
     </div>
   );
 };
-
-export default LiquibaseSetupPage;

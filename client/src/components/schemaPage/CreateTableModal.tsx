@@ -6,8 +6,8 @@ import {
   ForeignKeyDefinition,
   SchemaSnapshot,
   TableDefinition,
-} from "../types";
-import { changesAPI } from "../api";
+} from "@/types";
+import { changesAPI } from "@/api";
 
 interface CreateTableModalProps {
   isOpen: boolean;

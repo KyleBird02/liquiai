@@ -9,23 +9,21 @@ import {
 } from "@/types/index";
 import { schemaAPI, changesAPI } from "@/api/index";
 import { useAlertContext } from "@/hooks/AlertContext";
+import { SchemaPageConnectionStrings } from "./types";
 import {
   SchemaViewer,
   CreateTableModal,
   ColumnDetailsTab,
   AddColumnModal,
   AIAssistantModal,
-} from "@/components/index";
+} from "@/components/schemaPage";
 import { Loader2, Plus, Zap, Upload } from "lucide-react";
-
-interface DBConfig {
-  dev: string;
-  local: string;
-}
 
 export const SchemaPage: React.FC = () => {
   const alertContext = useAlertContext();
-  const [config, setConfig] = useState<DBConfig | null>(null);
+  const [config, setConfig] = useState<SchemaPageConnectionStrings | null>(
+    null,
+  );
   const [selectedEnv, setSelectedEnv] = useState<"dev" | "local">("local");
   const [snapshot, setSnapshot] = useState<SchemaSnapshot | null>(null);
   const [selectedTable, setSelectedTable] = useState<string>("");
@@ -151,7 +149,7 @@ export const SchemaPage: React.FC = () => {
   useEffect(() => {
     schemaAPI.getConfig().then((cfg) => {
       if (cfg && !("error" in cfg)) {
-        setConfig(cfg as DBConfig);
+        setConfig(cfg as SchemaPageConnectionStrings);
       }
     });
 
