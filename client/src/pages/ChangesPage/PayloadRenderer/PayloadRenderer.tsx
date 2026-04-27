@@ -269,6 +269,58 @@ export const PayloadRenderer: React.FC<PayloadRendererProps> = ({
     );
   }
 
+  if (type === "GRID_CONFIG") {
+    const diff = payload?.diff;
+    const added = diff?.addedColumns?.length || 0;
+    const removed = diff?.removedColumns?.length || 0;
+    const modified = diff?.modifiedAttributes?.length || 0;
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-gray-800">
+            Grid Bundle:{" "}
+            <span className="font-mono text-indigo-600">
+              {payload?.gridName}
+            </span>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-emerald-50 border border-emerald-200 rounded p-2 text-sm text-emerald-800">
+            Added: {added}
+          </div>
+          <div className="bg-red-50 border border-red-200 rounded p-2 text-sm text-red-800">
+            Removed: {removed}
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded p-2 text-sm text-blue-800">
+            Modified: {modified}
+          </div>
+        </div>
+
+        {Array.isArray(diff?.modifiedAttributes) &&
+          diff.modifiedAttributes.length > 0 && (
+            <ul className="space-y-1 bg-white border border-gray-200 rounded-md overflow-hidden">
+              {diff.modifiedAttributes.map((m: any, idx: number) => (
+                <li
+                  key={idx}
+                  className="px-4 py-2 text-sm border-b last:border-0"
+                >
+                  <span className="font-mono text-blue-800">
+                    {m.columnName}
+                  </span>
+                  <span className="text-gray-500"> {m.field}: </span>
+                  <span className="text-gray-700">
+                    {String(m.before)} → {String(m.after)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+      </div>
+    );
+  }
+
   return (
     <pre className="text-sm bg-gray-50 p-4 rounded text-gray-800 overflow-x-auto">
       {JSON.stringify(payload, null, 2)}

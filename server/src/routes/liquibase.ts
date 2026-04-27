@@ -203,8 +203,14 @@ router.post("/generate-batch", async (req: Request, res: Response) => {
 router.put("/changeset/:id", (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { xmlContent, sqlFileContent, sqlFilePath, comment, changeType } =
-      req.body;
+    const {
+      xmlContent,
+      sqlFileContent,
+      sqlFilePath,
+      sqlFiles,
+      comment,
+      changeType,
+    } = req.body;
 
     const session = sessionManager.getSession();
     const changeset = session.changesets.find((cs) => cs.id === id);
@@ -280,6 +286,27 @@ router.put("/changeset/:id", (req: Request, res: Response) => {
           changeset.sqlFilePath,
           sqlFilePath,
         );
+      }
+    }
+
+    if (sqlFiles !== undefined) {
+      if (!Array.isArray(sqlFiles)) {
+        return res.status(400).json({
+          error: "sqlFiles must be an array when provided",
+        });
+      }
+
+      updates.sqlFiles = sqlFiles.map((file: any) => ({
+        path: String(file?.path || ""),
+        content: String(file?.content || ""),
+      }));
+
+      if (updates.sqlFiles.length > 0) {
+        updates.sqlFilePath = updates.sqlFiles[0].path;
+        updates.sqlFileContent = updates.sqlFiles[0].content;
+      } else {
+        updates.sqlFilePath = null;
+        updates.sqlFileContent = null;
       }
     }
 

@@ -17,6 +17,13 @@ export { ColumnDetailsTab } from "./ColumnDetailsTab";
 export { AddColumnModal } from "./AddColumnModal";
 export { AlertModal } from "./AlertModal";
 export { AIAssistantModal } from "./AIAssistantModal";
+
+// Grid Config components
+export { default as GridEditor } from "./grid/GridEditor";
+export { default as GridColumnList } from "./grid/GridColumnList";
+export { default as GridPreview } from "./grid/GridPreview";
+export { default as AIAssistantPanel } from "./grid/AIAssistantPanel";
+
 // ValidationPanel.tsx - Show validation errors/warnings from changes
 // ChangesetViewer.tsx - Display generated Liquibase XML changeset
 // ChangesList.tsx - List all proposed changes in session

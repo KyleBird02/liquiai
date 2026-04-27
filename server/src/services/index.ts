@@ -5,3 +5,4 @@ export { liquibaseGenerator } from "./liquibase.js";
 export { changesService } from "./changes.js";
 export { migrationService } from "./migration.js";
 export { llmSqlGenerator } from "./llm-sql-generator.js";
+export { gridService } from "./grid.js";

@@ -5,6 +5,7 @@ import schemaRoutes from "./routes/schema.js";
 import changesRoutes from "./routes/changes.js";
 import liquibaseRoutes from "./routes/liquibase.js";
 import githubRoutes from "./routes/github.js";
+import gridRoutes from "./routes/grid.js";
 
 dotenv.config();
 
@@ -25,6 +26,7 @@ app.use("/api/schema", schemaRoutes);
 app.use("/api/changes", changesRoutes);
 app.use("/api/liquibase", liquibaseRoutes);
 app.use("/api/github", githubRoutes);
+app.use("/api/grid", gridRoutes);
 
 // 404 handler
 app.use((req, res) => {

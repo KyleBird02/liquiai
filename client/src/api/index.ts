@@ -352,6 +352,7 @@ export const liquibaseAPI = {
       xmlContent?: string;
       sqlFileContent?: string | null;
       sqlFilePath?: string | null;
+      sqlFiles?: Array<{ path: string; content: string }>;
     },
   ) {
     try {
@@ -622,10 +623,173 @@ export const healthCheck = async () => {
   }
 };
 
+// Grid Config endpoints (Phase 2)
+export const gridAPI = {
+  /**
+   * List all grids from the database
+   */
+  async listGrids() {
+    try {
+      const response = await apiClient.get("/grid/list");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get a specific grid with all its attributes (joined view)
+   */
+  async getGrid(gridId: number) {
+    try {
+      const response = await apiClient.get(`/grid/${gridId}`);
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get all available grid columns (the registry)
+   */
+  async getGridColumns() {
+    try {
+      const response = await apiClient.get("/grid/columns/all");
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  async createGrid(
+    gridName: string,
+    columns: Array<{ columnName: string; columnType: string }>,
+  ) {
+    try {
+      const response = await apiClient.post("/grid/create", {
+        gridName,
+        columns,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  async applyGridConfig(gridId: number, columns: any[]) {
+    try {
+      const response = await apiClient.post(`/grid/${gridId}/apply`, {
+        columns,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Propose a grid configuration change and compute diff
+   */
+  async proposeGridChange(gridId: number, proposedColumns: any[]) {
+    try {
+      const response = await apiClient.post("/grid/propose", {
+        gridId,
+        proposedColumns,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get width suggestions based on existing column usage
+   */
+  async suggestWidths(columns: any[]) {
+    try {
+      const response = await apiClient.post("/grid/ai/suggest-widths", {
+        columns,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Get header name suggestions
+   */
+  async suggestHeaders(columns: any[]) {
+    try {
+      const response = await apiClient.post("/grid/ai/suggest-headers", {
+        columns,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Generate synthetic data for grid preview
+   */
+  async generateSyntheticData(columns: any[], rowCount: number = 10) {
+    try {
+      const response = await apiClient.post("/grid/ai/synthetic-data", {
+        columns,
+        rowCount,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Chat with AI assistant about grid configuration
+   */
+  async chatWithAI(gridConfig: any, messages: any[]) {
+    try {
+      const response = await apiClient.post("/grid/ai/chat", {
+        gridConfig,
+        messages,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+
+  /**
+   * Generate changeset from grid configuration change
+   */
+  async generateGridChangeset(
+    gridId: number,
+    proposedColumns: any[],
+    author: string,
+    targetApplication: string,
+    targetSprint: string,
+  ) {
+    try {
+      const response = await apiClient.post("/grid/generate-changeset", {
+        gridId,
+        proposedColumns,
+        author,
+        targetApplication,
+        targetSprint,
+      });
+      return response.data;
+    } catch (error) {
+      return handleError(error as AxiosError);
+    }
+  },
+};
+
 export default {
   schema: schemaAPI,
   changes: changesAPI,
   liquibase: liquibaseAPI,
   github: githubAPI,
+  grid: gridAPI,
   healthCheck,
 };

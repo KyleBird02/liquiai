@@ -6,9 +6,11 @@ import {
   ColumnDefinition,
   ChangesetDefinition,
   ChangeReview,
+  GridConfigPayload,
 } from "../types/index";
 import { Builder, parseString } from "xml2js";
 import { LLMFactory, LLMMessage } from "./llm";
+import { gridCSVGenerator } from "./grid-csv";
 
 class LiquibaseGenerator {
   private author: string;
@@ -23,12 +25,6 @@ class LiquibaseGenerator {
    * Complex operations = SQL file
    */
   shouldUseSqlFormat(change: ProposedChange): boolean {
-    // For PoC, we'll use simplified logic:
-    // - CREATE_TABLE, ADD_INDEX, DROP_INDEX always use XML
-    // - ALTER_TABLE (complex operations) and DROP_TABLE use XML for simplicity
-    // - EXECUTE_SQL always uses SQL file format
-    // In Phase 3, this could be more sophisticated
-
     switch (change.type) {
       case "CREATE_TABLE":
       case "ALTER_TABLE":
@@ -39,6 +35,8 @@ class LiquibaseGenerator {
         return false; // Use inline XML
       case "EXECUTE_SQL":
         return true; // Use SQL file
+      case "GRID_CONFIG":
+        return false; // Grid config uses Liquibase XML with CSV files
       default:
         return false;
     }
@@ -55,6 +53,17 @@ class LiquibaseGenerator {
     author: string,
     comment: string | null = null,
   ): ChangesetDefinition {
+    if (change.type === "GRID_CONFIG") {
+      return this.generateGridConfigChangesetDefinition(
+        change,
+        changesetId,
+        targetApplication,
+        targetSprint,
+        author,
+        comment,
+      );
+    }
+
     const useSqlFormat = this.shouldUseSqlFormat(change);
     const xmlContent = this.generateChangesetXml(
       change,
@@ -88,6 +97,76 @@ class LiquibaseGenerator {
       sqlFilePath,
       sqlFileContent,
       sqlFiles,
+      xmlContent,
+      targetApplication,
+      targetSprint,
+      edited: false,
+    };
+  }
+
+  private generateGridConfigChangesetDefinition(
+    change: ProposedChange,
+    changesetId: string,
+    targetApplication: string,
+    targetSprint: string,
+    author: string,
+    comment: string | null,
+  ): ChangesetDefinition {
+    const payload = change.payload as GridConfigPayload;
+    const gridName = payload.gridName;
+    const beforeColumns = payload.beforeColumns || [];
+    const afterColumns = payload.afterColumns || [];
+    const isNewGrid = beforeColumns.length === 0;
+
+    const csvFiles: Array<{ path: string; content: string }> = [];
+
+    if (isNewGrid) {
+      const gridCsvPath = `${targetApplication}/${targetSprint}/grid_${gridName}.csv`;
+      const attributesCsvPath = `${targetApplication}/${targetSprint}/grid_attributes_${gridName}.csv`;
+
+      csvFiles.push({
+        path: gridCsvPath,
+        content: gridCSVGenerator.generateGridTableCSV({
+          id: payload.gridId,
+          grid_name: gridName,
+        }),
+      });
+
+      csvFiles.push({
+        path: attributesCsvPath,
+        content: gridCSVGenerator.generateGridAttributesCSV(afterColumns),
+      });
+    } else {
+      const updateCsv = gridCSVGenerator.generateGridAttributesUpdateCSV(
+        beforeColumns,
+        afterColumns,
+      );
+      const attributesUpdateCsvPath = `${targetApplication}/${targetSprint}/grid_attributes_${gridName}_update.csv`;
+
+      csvFiles.push({
+        path: attributesUpdateCsvPath,
+        content: updateCsv.csv,
+      });
+    }
+
+    const xmlContent = this.generateGridChangesetXml(
+      changesetId,
+      author,
+      gridName,
+      targetApplication,
+      targetSprint,
+      isNewGrid,
+    );
+
+    return {
+      id: changesetId,
+      author,
+      comment,
+      changeType: "xml",
+      change,
+      sqlFilePath: null,
+      sqlFileContent: null,
+      sqlFiles: csvFiles,
       xmlContent,
       targetApplication,
       targetSprint,
@@ -1006,6 +1085,76 @@ Required JSON shape:
       );
       return changesets;
     }
+  }
+
+  /**
+   * Generate a changeset for a new grid configuration (uses loadData)
+   */
+  generateGridChangesetXml(
+    changesetId: string,
+    author: string,
+    gridName: string,
+    application: string,
+    sprint: string,
+    isNew: boolean = true,
+  ): string {
+    const operations: string[] = [];
+
+    if (isNew) {
+      // For new grids, use loadData for both grid and grid_attributes
+      const gridPath = `${application}/${sprint}/grid_${gridName}.csv`;
+      const attributesPath = `${application}/${sprint}/grid_attributes_${gridName}.csv`;
+
+      operations.push(
+        `        <loadData file="${this.quoteXmlAttribute(gridPath)}" tableName="grid"/>`,
+      );
+      operations.push(
+        `        <loadData file="${this.quoteXmlAttribute(attributesPath)}" tableName="grid_attributes"/>`,
+      );
+    } else {
+      // For updated grids, use loadUpdateData
+      const attributesPath = `${application}/${sprint}/grid_attributes_${gridName}_update.csv`;
+      operations.push(
+        `        <loadUpdateData file="${this.quoteXmlAttribute(attributesPath)}" tableName="grid_attributes" primaryKey="id"/>`,
+      );
+    }
+
+    return `    <changeSet id="${changesetId}" author="${author}">\n${operations.join("\n")}\n    </changeSet>`;
+  }
+
+  /**
+   * Generate a grid changeset definition
+   */
+  generateGridChangesetDefinition(
+    gridName: string,
+    changesetId: string,
+    author: string,
+    targetApplication: string,
+    targetSprint: string,
+    csvFiles: Array<{ tableName: string; path: string; content: string }>,
+    isNew: boolean = true,
+    comment: string | null = null,
+  ): any {
+    const xmlContent = this.generateGridChangesetXml(
+      changesetId,
+      author,
+      gridName,
+      targetApplication,
+      targetSprint,
+      isNew,
+    );
+
+    return {
+      id: changesetId,
+      author,
+      comment,
+      changeType: isNew ? "loadData" : "loadUpdateData",
+      csvFiles,
+      xmlContent,
+      targetApplication,
+      targetSprint,
+      edited: false,
+    };
   }
 }
 

@@ -9,6 +9,7 @@ import ChangesetReviewPage from "./pages/ChangesetReviewPage/ChangesetReviewPage
 import FilePreviewPage from "./pages/FilePreviewPage";
 import PRCreationPage from "./pages/PRCreationPage";
 import "./index.css";
+import GridConfigPage from "./pages/GridConfigPage";
 
 function AppContent() {
   return (
@@ -19,6 +20,7 @@ function AppContent() {
           {/* Phase 1 - Schema & Changes */}
           <Route path="/schema" element={<SchemaPage />} />
           <Route path="/changes" element={<ChangesPage />} />
+          <Route path="/grids" element={<GridConfigPage />} />
 
           {/* Phase 2 - Liquibase Changeset Generation & PR Creation */}
           <Route path="/liquibase/setup" element={<LiquibaseSetupPage />} />

@@ -405,3 +405,290 @@ export async function testConnection(
     return false;
   }
 }
+
+// Grid Config Pipeline - Database queries
+
+/**
+ * Fetches all grids from the database
+ */
+export async function getAllGrids(client?: any): Promise<any[]> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  const result = await query(
+    "SELECT id, grid_name FROM grid ORDER BY grid_name",
+  );
+  return result.rows;
+}
+
+/**
+ * Fetches a single grid by ID with all its attributes (joined with column info)
+ */
+export async function getGridWithAttributes(
+  gridId: number,
+  client?: any,
+): Promise<any> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  const gridResult = await query(
+    "SELECT id, grid_name FROM grid WHERE id = $1",
+    [gridId],
+  );
+
+  if (gridResult.rows.length === 0) {
+    return null;
+  }
+
+  const attributesResult = await query(
+    `
+    SELECT 
+      ga.id, 
+      ga.grid_id, 
+      ga.column_id, 
+      ga.header_name, 
+      ga.width, 
+      ga.min_width, 
+      ga.max_width, 
+      ga.position, 
+      ga.sortable, 
+      ga.resizable, 
+      ga.filter, 
+      ga.pinned, 
+      ga.hide, 
+      ga.flex,
+      gc.column_name,
+      gc.column_type
+    FROM grid_attributes ga
+    JOIN grid_columns gc ON ga.column_id = gc.id
+    WHERE ga.grid_id = $1
+    ORDER BY ga.position ASC
+  `,
+    [gridId],
+  );
+
+  return {
+    grid: gridResult.rows[0],
+    columns: attributesResult.rows,
+  };
+}
+
+/**
+ * Fetches all grid columns (the registry of available columns)
+ */
+export async function getAllGridColumns(client?: any): Promise<any[]> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  const result = await query(
+    "SELECT id, column_name, column_type FROM grid_columns ORDER BY column_name",
+  );
+  return result.rows;
+}
+
+/**
+ * Creates a new grid
+ */
+export async function createGrid(gridName: string, client?: any): Promise<any> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  await query(
+    `SELECT setval(
+      pg_get_serial_sequence('grid', 'id'),
+      (SELECT COALESCE(MAX(id), 0) + 1 FROM grid),
+      false
+    )`,
+  );
+
+  const result = await query(
+    "INSERT INTO grid (grid_name) VALUES ($1) RETURNING id, grid_name",
+    [gridName],
+  );
+  return result.rows[0];
+}
+
+/**
+ * Creates a new grid column in the column registry
+ */
+export async function createGridColumn(
+  columnName: string,
+  columnType: string,
+  client?: any,
+): Promise<any> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  await query(
+    `SELECT setval(
+      pg_get_serial_sequence('grid_columns', 'id'),
+      (SELECT COALESCE(MAX(id), 0) + 1 FROM grid_columns),
+      false
+    )`,
+  );
+
+  const result = await query(
+    `INSERT INTO grid_columns (column_name, column_type)
+     VALUES ($1, $2)
+     RETURNING id, column_name, column_type`,
+    [columnName, columnType],
+  );
+
+  return result.rows[0];
+}
+
+/**
+ * Creates a new grid attribute (column in a grid)
+ */
+export async function createGridAttribute(
+  gridId: number,
+  columnId: number,
+  headerName: string,
+  width: number,
+  minWidth: number,
+  maxWidth: number,
+  position: number,
+  sortable: boolean,
+  resizable: boolean,
+  filter: boolean,
+  pinned: "left" | "right" | null,
+  hide: boolean,
+  flex: number | null,
+  client?: any,
+): Promise<any> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  const result = await query(
+    `INSERT INTO grid_attributes 
+    (grid_id, column_id, header_name, width, min_width, max_width, position, sortable, resizable, filter, pinned, hide, flex) 
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    RETURNING *`,
+    [
+      gridId,
+      columnId,
+      headerName,
+      width,
+      minWidth,
+      maxWidth,
+      position,
+      sortable,
+      resizable,
+      filter,
+      pinned,
+      hide,
+      flex,
+    ],
+  );
+  return result.rows[0];
+}
+
+export async function deleteGrid(gridId: number, client?: any): Promise<void> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  await query("DELETE FROM grid_attributes WHERE grid_id = $1", [gridId]);
+  await query("DELETE FROM grid WHERE id = $1", [gridId]);
+}
+
+/**
+ * Updates a grid attribute
+ */
+export async function updateGridAttribute(
+  attributeId: number,
+  updates: Partial<any>,
+  client?: any,
+): Promise<any> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  const fields = Object.keys(updates);
+  const values = Object.values(updates);
+
+  if (fields.length === 0) {
+    return null;
+  }
+
+  const setClause = fields
+    .map((field, idx) => `${field} = $${idx + 1}`)
+    .join(", ");
+  const sql = `UPDATE grid_attributes SET ${setClause} WHERE id = $${fields.length + 1} RETURNING *`;
+
+  const result = await query(sql, [...values, attributeId]);
+  return result.rows[0];
+}
+
+/**
+ * Deletes a grid attribute
+ */
+export async function deleteGridAttribute(
+  attributeId: number,
+  client?: any,
+): Promise<void> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  await query("DELETE FROM grid_attributes WHERE id = $1", [attributeId]);
+}
+
+/**
+ * Fetches existing usage of a column_name across all grids for width suggestions
+ */
+export async function getColumnUsageForWidthSuggestion(
+  columnName: string,
+  client?: any,
+): Promise<any[]> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  const result = await query(
+    `
+    SELECT 
+      ga.width, 
+      ga.min_width, 
+      ga.max_width
+    FROM grid_attributes ga
+    JOIN grid_columns gc ON ga.column_id = gc.id
+    WHERE gc.column_name = $1
+    ORDER BY ga.width
+  `,
+    [columnName],
+  );
+  return result.rows;
+}
+
+/**
+ * Fetches sample data from a table column for synthetic data generation
+ */
+export async function getSampleColumnData(
+  schema: string,
+  tableName: string,
+  columnName: string,
+  limit: number = 20,
+  client?: any,
+): Promise<any[]> {
+  const query = client
+    ? (sql: string, params?: any[]) => client.query(sql, params)
+    : (sql: string, params?: any[]) => connectionManager.query(sql, params);
+
+  try {
+    const result = await query(
+      `SELECT ${columnName} FROM ${schema}.${tableName} WHERE ${columnName} IS NOT NULL LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row: any) => row[columnName]);
+  } catch (error) {
+    // Column or table doesn't exist
+    return [];
+  }
+}

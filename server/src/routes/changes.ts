@@ -1,12 +1,13 @@
 import express, { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
-import { ProposedChange } from "../types/index";
+import { ProposedChange, GridConfigPayload } from "../types/index";
 import { diffCalculator } from "../services/diff";
 import { schemaService } from "../services/schema";
 import { migrationService } from "../services/migration";
 import { llmSqlGenerator } from "../services/llm-sql-generator";
 import { LLMFactory } from "../services/llm";
 import { connectionManager } from "../db/connection";
+import { gridService } from "../services/grid";
 
 const router = Router();
 
@@ -37,6 +38,17 @@ router.post("/propose", async (req: Request, res: Response) => {
       createdAt: new Date().toISOString(),
       appliedLocally: false,
     };
+
+    if (type === "GRID_CONFIG" && payload?.gridId) {
+      for (const [id, existing] of proposedChanges.entries()) {
+        if (
+          existing.type === "GRID_CONFIG" &&
+          (existing.payload as GridConfigPayload)?.gridId === payload.gridId
+        ) {
+          proposedChanges.delete(id);
+        }
+      }
+    }
 
     // Calculate diff against current snapshot
     let schemaDiff = null;
@@ -78,8 +90,13 @@ router.post("/propose", async (req: Request, res: Response) => {
       );
     }
 
-    // Generate SQL preview using LLM
-    change.sqlPreview = await llmSqlGenerator.generateSQL(change);
+    if (type === "EXECUTE_SQL" && typeof payload.sql === "string") {
+      change.sqlPreview = payload.sql;
+    } else if (type === "GRID_CONFIG" && typeof payload.sql === "string") {
+      change.sqlPreview = payload.sql;
+    } else {
+      change.sqlPreview = await llmSqlGenerator.generateSQL(change);
+    }
 
     // Store the change
     proposedChanges.set(changeId, change);
@@ -214,6 +231,21 @@ router.post("/:id/apply", async (req: Request, res: Response) => {
       }
       const payload = change.payload as any;
       applyResult = await migrationService.executeSQL(payload.sql, connStr);
+    } else if (change.type === "GRID_CONFIG") {
+      const payload = change.payload as GridConfigPayload;
+      if (payload.gridId && payload.gridId > 0) {
+        await gridService.applyGridConfig(payload.gridId, payload.afterColumns);
+      } else {
+        const created = await gridService.createGridFromProposedConfig(
+          payload.gridName,
+          payload.afterColumns,
+        );
+        payload.gridId = created.grid.id;
+      }
+      applyResult = {
+        success: true,
+        message: `Grid ${payload.gridName} applied successfully`,
+      };
     } else {
       return res.status(501).json({
         error: `Applying ${change.type} is not yet implemented`,
@@ -295,6 +327,20 @@ router.post("/:id/revert", async (req: Request, res: Response) => {
       return res.status(501).json({
         error: `Reverting raw SQL is not supported. Manual intervention may be required.`,
       });
+    } else if (change.type === "GRID_CONFIG") {
+      const payload = change.payload as GridConfigPayload;
+      if (payload.beforeColumns && payload.beforeColumns.length > 0) {
+        await gridService.applyGridConfig(
+          payload.gridId,
+          payload.beforeColumns,
+        );
+      } else if (payload.gridId && payload.gridId > 0) {
+        await gridService.deleteGridById(payload.gridId);
+      }
+      revertResult = {
+        success: true,
+        message: `Grid ${payload.gridName} reverted successfully`,
+      };
     } else {
       return res
         .status(501)

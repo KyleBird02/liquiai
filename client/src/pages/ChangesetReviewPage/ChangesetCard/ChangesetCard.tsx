@@ -22,6 +22,9 @@ export const ChangesetCard: React.FC<ChangesetCardProps> = ({
   const [editedSqlPath, setEditedSqlPath] = useState(
     changeset.sqlFilePath || "",
   );
+  const [editedFiles, setEditedFiles] = useState<
+    Array<{ path: string; content: string }>
+  >(changeset.sqlFiles || []);
   const [activeTab, setActiveTab] = useState<"xml" | "sql">("xml");
   const [saveLoading, setSaveLoading] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -67,6 +70,7 @@ export const ChangesetCard: React.FC<ChangesetCardProps> = ({
         xmlContent: editedXml,
         sqlFileContent: editedSql || null,
         sqlFilePath: editedSqlPath || null,
+        sqlFiles: editedFiles,
       });
       if (result && !result.error) {
         onUpdate(result.changeset);
@@ -93,8 +97,35 @@ export const ChangesetCard: React.FC<ChangesetCardProps> = ({
     setEditedXml(changeset.xmlContent);
     setEditedSql(changeset.sqlFileContent || "");
     setEditedSqlPath(changeset.sqlFilePath || "");
+    setEditedFiles(changeset.sqlFiles || []);
     setSaveError(null);
     setSaveSuccess(false);
+  };
+
+  const reviewFiles =
+    changeset.sqlFiles && changeset.sqlFiles.length > 0
+      ? changeset.sqlFiles
+      : changeset.sqlFilePath
+        ? [
+            {
+              path: changeset.sqlFilePath,
+              content: changeset.sqlFileContent || "",
+            },
+          ]
+        : [];
+
+  const editFiles =
+    editedFiles.length > 0
+      ? editedFiles
+      : editedSqlPath
+        ? [{ path: editedSqlPath, content: editedSql }]
+        : [];
+
+  const detectLanguage = (path: string) => {
+    if (path.endsWith(".sql")) return "sql";
+    if (path.endsWith(".xml")) return "xml";
+    if (path.endsWith(".csv")) return "plaintext";
+    return "plaintext";
   };
 
   if (isEditing) {
@@ -193,6 +224,34 @@ export const ChangesetCard: React.FC<ChangesetCardProps> = ({
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
                 />
               </div>
+            </div>
+          )}
+
+          {editFiles.length > 0 && (
+            <div className="space-y-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Generated Files (CSV/SQL)
+              </label>
+              {editFiles.map((file, index) => (
+                <div key={`${file.path}-${index}`}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    {file.path}
+                  </label>
+                  <textarea
+                    value={file.content}
+                    onChange={(e) => {
+                      const next = [...editFiles];
+                      next[index] = {
+                        ...next[index],
+                        content: e.target.value,
+                      };
+                      setEditedFiles(next);
+                    }}
+                    rows={10}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-xs"
+                  />
+                </div>
+              ))}
             </div>
           )}
 
@@ -382,24 +441,53 @@ export const ChangesetCard: React.FC<ChangesetCardProps> = ({
 
               {activeTab === "sql" && (
                 <div>
-                  <h4 className="font-medium text-gray-900 mb-2">
-                    SQL File Content
-                  </h4>
+                  {reviewFiles.map((file, index) => (
+                    <div key={`${file.path}-${index}`} className="mb-4">
+                      <h4 className="font-medium text-gray-900 mb-2">
+                        Generated File Content
+                      </h4>
+                      <p className="text-sm text-gray-600 mb-2">
+                        Path:{" "}
+                        <code className="bg-gray-100 px-2 py-1 rounded">
+                          {file.path}
+                        </code>
+                      </p>
+                      <SyntaxHighlighter
+                        language={detectLanguage(file.path)}
+                        style={docco}
+                        className="rounded text-xs overflow-x-auto"
+                      >
+                        {file.content}
+                      </SyntaxHighlighter>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {changeset.changeType === "xml" && reviewFiles.length > 0 && (
+            <div className="space-y-4">
+              <h4 className="font-medium text-gray-900 mb-2">
+                Generated Files
+              </h4>
+              {reviewFiles.map((file, index) => (
+                <div key={`${file.path}-${index}`}>
                   <p className="text-sm text-gray-600 mb-2">
                     Path:{" "}
                     <code className="bg-gray-100 px-2 py-1 rounded">
-                      {changeset.sqlFilePath}
+                      {file.path}
                     </code>
                   </p>
                   <SyntaxHighlighter
-                    language="sql"
+                    language={detectLanguage(file.path)}
                     style={docco}
                     className="rounded text-xs overflow-x-auto"
                   >
-                    {changeset.sqlFileContent}
+                    {file.content}
                   </SyntaxHighlighter>
                 </div>
-              )}
+              ))}
             </div>
           )}
         </div>

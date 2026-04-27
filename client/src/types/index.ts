@@ -5,7 +5,8 @@ export type ChangeType =
   | "DROP_TABLE"
   | "ADD_INDEX"
   | "DROP_INDEX"
-  | "EXECUTE_SQL";
+  | "EXECUTE_SQL"
+  | "GRID_CONFIG";
 
 export interface ColumnDefinition {
   name: string;
@@ -179,6 +180,14 @@ export interface ExecuteSqlPayload {
   sql: string;
 }
 
+export interface GridConfigPayload {
+  gridId: number;
+  gridName: string;
+  beforeColumns: GridAttributeWithMeta[];
+  afterColumns: GridAttributeWithMeta[];
+  diff: GridConfigChange;
+}
+
 // Phase 2 - Liquibase Changeset Generation
 
 export interface ChangeReview {
@@ -238,4 +247,79 @@ export interface GitHubFileChange {
   message: string;
   fileType?: "changeset-xml" | "sql-file"; // Type of file being previewed
   newContent?: string; // For changeset.xml, only the new changesets being added
+}
+
+// Grid Config Pipeline - Client types
+
+export interface GridColumn {
+  id: number;
+  column_name: string;
+  column_type: string;
+}
+
+export interface Grid {
+  id: number;
+  grid_name: string;
+}
+
+export interface GridAttribute {
+  id: number;
+  grid_id: number;
+  column_id: number;
+  header_name: string;
+  width: number;
+  min_width: number;
+  max_width: number;
+  position: number;
+  sortable: boolean;
+  resizable: boolean;
+  filter: boolean;
+  pinned: "left" | "right" | null;
+  hide: boolean;
+  flex: number | null;
+}
+
+export interface GridAttributeWithMeta extends GridAttribute {
+  column_name: string;
+  column_type: string;
+}
+
+export interface GridConfig {
+  grid: Grid;
+  columns: GridAttributeWithMeta[];
+}
+
+export interface WidthSuggestion {
+  columnName: string;
+  suggestedWidth: number;
+  suggestedMinWidth: number;
+  suggestedMaxWidth: number;
+  confidence: "high" | "low";
+  dataPoints: number;
+}
+
+export interface GridAttributeModification {
+  columnName: string;
+  field: keyof GridAttribute;
+  before: unknown;
+  after: unknown;
+}
+
+export interface GridConfigChange {
+  type: "NEW_GRID" | "UPDATE_GRID";
+  grid: Grid;
+  before: GridAttributeWithMeta[] | null;
+  after: GridAttributeWithMeta[];
+  addedColumns: GridAttributeWithMeta[];
+  removedColumns: GridAttributeWithMeta[];
+  modifiedAttributes: GridAttributeModification[];
+}
+
+export interface SyntheticDataRow {
+  [key: string]: string | number | boolean | null;
+}
+
+export interface AIAssistantMessage {
+  role: "user" | "assistant";
+  content: string;
 }

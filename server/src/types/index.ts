@@ -91,7 +91,8 @@ export type ChangeType =
   | "DROP_TABLE"
   | "ADD_INDEX"
   | "DROP_INDEX"
-  | "EXECUTE_SQL";
+  | "EXECUTE_SQL"
+  | "GRID_CONFIG";
 
 export interface ProposedChange {
   id: string;
@@ -101,7 +102,8 @@ export interface ProposedChange {
     | CreateTablePayload
     | AlterTablePayload
     | DropTablePayload
-    | ExecuteSqlPayload;
+    | ExecuteSqlPayload
+    | GridConfigPayload;
   validationResult?: ValidationResult;
   createdAt: string;
   appliedLocally?: boolean;
@@ -112,6 +114,14 @@ export interface ProposedChange {
 export interface ExecuteSqlPayload {
   sql: string;
   fileName?: string;
+}
+
+export interface GridConfigPayload {
+  gridId: number;
+  gridName: string;
+  beforeColumns: GridAttributeWithMeta[];
+  afterColumns: GridAttributeWithMeta[];
+  diff: GridConfigChange;
 }
 
 export interface CreateTablePayload {
@@ -247,4 +257,112 @@ export interface GitHubFileChange {
   content?: string; // file content to commit
   fileType?: "changeset-xml" | "sql-file"; // Type of file
   newContent?: string; // For changeset.xml, only the new changesets being added
+}
+
+// Grid Config Pipeline - Phase 2
+
+// Database grid column registry
+export interface GridColumn {
+  id: number;
+  column_name: string; // camelCase logical name e.g. "tradePrice"
+  column_type: string; // postgres type e.g. "integer", "varchar"
+}
+
+// Database grid registry
+export interface Grid {
+  id: number;
+  grid_name: string; // e.g. "tradeGrid"
+}
+
+// Database grid attributes - one row per column in a grid
+export interface GridAttribute {
+  id: number;
+  grid_id: number; // FK → grid.id
+  column_id: number; // FK → grid_columns.id
+  header_name: string; // display label e.g. "Trade Price"
+  width: number; // pixels
+  min_width: number;
+  max_width: number;
+  position: number; // column order (0-indexed)
+  sortable: boolean;
+  resizable: boolean;
+  filter: boolean;
+  pinned: "left" | "right" | null;
+  hide: boolean;
+  flex: number | null; // AG Grid flex sizing — null if fixed width
+}
+
+// Full resolved grid config (joined view used by the editor)
+export interface GridAttributeWithMeta extends GridAttribute {
+  column_name: string; // joined from grid_columns
+  column_type: string; // joined from grid_columns
+}
+
+export interface GridConfig {
+  grid: Grid;
+  columns: GridAttributeWithMeta[];
+}
+
+// Width suggestion returned by AI assistant
+export interface WidthSuggestion {
+  columnName: string;
+  suggestedWidth: number;
+  suggestedMinWidth: number;
+  suggestedMaxWidth: number;
+  confidence: "high" | "low";
+  dataPoints: number; // how many other grids had this column
+}
+
+// Tracks modifications to a grid attribute
+export interface GridAttributeModification {
+  columnName: string;
+  field: keyof GridAttribute;
+  before: unknown;
+  after: unknown;
+}
+
+// Grid configuration change for changeset generation
+export interface GridConfigChange {
+  type: "NEW_GRID" | "UPDATE_GRID";
+  grid: Grid;
+  before: GridAttributeWithMeta[] | null; // null for NEW_GRID
+  after: GridAttributeWithMeta[];
+  addedColumns: GridAttributeWithMeta[];
+  removedColumns: GridAttributeWithMeta[];
+  modifiedAttributes: GridAttributeModification[];
+}
+
+// Extended changeset definition to support grid config
+export interface GridChangesetDefinition {
+  id: string; // e.g. "trade-125"
+  author: string;
+  comment: string | null;
+  changeType: "loadData" | "loadUpdateData";
+  change: GridConfigChange;
+  csvFiles: Array<{
+    tableName: string;
+    path: string; // relative path e.g. "trade-service/sprint-42/grid_trade_grid.csv"
+    content: string; // CSV content
+  }>;
+  xmlContent: string; // the full rendered changeset XML block
+  targetApplication: string;
+  targetSprint: string;
+  edited: boolean;
+}
+
+// Synthetic data for grid preview
+export interface SyntheticDataRow {
+  [key: string]: string | number | boolean | null;
+}
+
+// AI assistant chat message
+export interface AIAssistantMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+// AI assistant chat request
+export interface AIAssistantChatRequest {
+  gridConfig: GridConfig;
+  messages: AIAssistantMessage[];
 }

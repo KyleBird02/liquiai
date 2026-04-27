@@ -6,13 +6,15 @@ import {
   Layers,
   GitCommit,
   FileJson,
+  Grid2X2,
 } from "lucide-react";
 
 export const Navigation: React.FC = () => {
   const location = useLocation();
 
   const navItems = [
-    { name: "Schema", path: "/schema", icon: LayoutTemplate },
+    { name: "Schema", path: "/schema", icon: Database },
+    { name: "Grid", path: "/grids", icon: Grid2X2 },
     { name: "Changes", path: "/changes", icon: GitCommit },
     { name: "Generate Liquibase", path: "/liquibase/setup", icon: FileJson },
   ];
