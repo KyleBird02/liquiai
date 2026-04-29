@@ -11,8 +11,6 @@ import { gridService } from "../services/grid";
 
 const router = Router();
 
-// In-memory storage of proposed changes (per session)
-// TODO: In Phase 2, persist this to a database
 const proposedChanges = new Map<string, ProposedChange>();
 
 /**
@@ -50,7 +48,6 @@ router.post("/propose", async (req: Request, res: Response) => {
       }
     }
 
-    // Calculate diff against current snapshot
     let schemaDiff = null;
     if (type === "CREATE_TABLE") {
       const snapshot = schemaService.getCurrentSnapshot();
@@ -58,7 +55,6 @@ router.post("/propose", async (req: Request, res: Response) => {
         payload.schema,
         payload.tableName,
       );
-      // For create, construct the after table from payload
       const afterTable = {
         name: payload.tableName,
         schema: payload.schema,
@@ -82,8 +78,6 @@ router.post("/propose", async (req: Request, res: Response) => {
         payload.schema,
         payload.tableName,
       );
-      // TODO: Construct afterTable based on alter operations
-      // For now, just return the before
       schemaDiff = diffCalculator.calculateDiff(
         beforeTable || null,
         beforeTable || null,
@@ -98,7 +92,6 @@ router.post("/propose", async (req: Request, res: Response) => {
       change.sqlPreview = await llmSqlGenerator.generateSQL(change);
     }
 
-    // Store the change
     proposedChanges.set(changeId, change);
     console.log(`Proposed change ${changeId}:`, change);
     return res.json({

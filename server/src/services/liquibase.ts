@@ -982,8 +982,6 @@ Primary objective:
 - Flag only migration risks that are likely to fail or cause data loss/breakage in higher environments (QA/UAT/PROD) where data volume and data quality differ from DEV.
 
 Do NOT produce warnings for:
-- Style preferences, naming preferences, or readability suggestions.
-- Generic best-practice advice without concrete risk in the provided change.
 - Duplicate restatements of the same issue.
 
 Severity rules:
