@@ -36,7 +36,7 @@ export interface ColumnDetails extends ColumnDefinition {
   policies: PgPolicy[];
   permissions: ColumnPermission[];
   dependencies: ColumnDependency[];
-  isPartOf?: string; // partition name if any
+  isPartOf?: string;
 }
 
 export interface ConstraintDefinition {
