@@ -9,6 +9,8 @@ import {
   buildChangesetMapping,
   formatChangesetWarnings,
   buildPRDescription,
+  generatePrText,
+  generateAppendixAndPrText,
   detectChangesetTarget,
 } from "../services/pr-description";
 import {
@@ -138,14 +140,24 @@ const getOrGenerateReviewerAppendix = async (
   const session = sessionManager.getSession();
   const cached = session.prReviewerAppendix;
 
-  if (cached && cached.digest === digest && cached.markdown) {
+  if (cached && cached.digest === digest && cached.markdown && cached.prText) {
     return cached.markdown;
   }
 
+  // Call LLM to generate both reviewer appendix and concise PR text in one go
   let markdown = "";
+  let prText: { title: string; description: string } | null = null;
   try {
-    markdown = await generateReviewerAppendix(changesets);
-  } catch {
+    // Single LLM request to produce both appendix markdown and concise PR text
+    const combined = await generateAppendixAndPrText(
+      changesets,
+      session.targetApplication || "application",
+      session.targetSprint || "sprint",
+    );
+
+    markdown = combined.appendix || "";
+    prText = combined.prText || null;
+  } catch (e) {
     const scopeTargets = Array.from(
       new Set(changesets.map((cs) => detectChangesetTarget(cs))),
     );
@@ -171,7 +183,7 @@ const getOrGenerateReviewerAppendix = async (
     ].join("\n");
   }
 
-  session.prReviewerAppendix = { digest, markdown };
+  session.prReviewerAppendix = { digest, markdown, prText: prText || undefined };
   return markdown;
 };
 
@@ -305,18 +317,29 @@ router.get("/generate-pr-text", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "No changesets available" });
     }
 
+    // If we already generated the appendix and prText together, return cached prText
+    const cached = session.prReviewerAppendix;
+    if (cached && cached.prText) {
+      return res.json({ title: cached.prText.title, description: cached.prText.description });
+    }
+
+    // Otherwise generate appendix (which will also generate and cache prText)
+    try {
+      await getOrGenerateReviewerAppendix(session.changesets);
+      const nowCached = session.prReviewerAppendix;
+      if (nowCached && nowCached.prText) {
+        return res.json({ title: nowCached.prText.title, description: nowCached.prText.description });
+      }
+    } catch (e) {
+      // ignore and fallthrough to fallback
+    }
+
+    // Fallback deterministic title/description
     const title = buildAutoPrTitle(
       session.targetApplication || "application",
       session.changesets,
     );
-    const description = [
-      `Migration for ${session.targetApplication}/${session.targetSprint}.`,
-      "",
-      "Summary:",
-      "- Schema and data changes have been prepared via Liquibase changesets.",
-      "- Full reviewer appendix is auto-attached to the final PR description.",
-    ].join("\n");
-
+    const description = `Migration for ${session.targetApplication}/${session.targetSprint}.`;
     return res.json({ title, description });
   } catch (error: any) {
     console.error("Generate PR text error:", error);

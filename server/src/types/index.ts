@@ -241,6 +241,7 @@ export interface Phase2Session {
   prReviewerAppendix?: {
     digest: string;
     markdown: string;
+    prText?: { title: string; description: string };
   };
   batch?: ChangesetBatch;
 }

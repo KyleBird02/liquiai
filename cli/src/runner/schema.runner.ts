@@ -222,15 +222,12 @@ export async function runSchemaRunner(args: SchemaRunnerArgs): Promise<void> {
 
   // Build PR title and description using the shared service (matching server application pattern)
   const prDescriptionModule = await getPRDescriptionService();
-  const { buildAutoPrTitle, buildPRDescription } = prDescriptionModule;
+  const { generatePrText } = prDescriptionModule;
 
-  const prTitle = buildAutoPrTitle(args.app, [changeset]);
-  const prDescription = buildPRDescription(
-    args.app,
-    args.sprint,
-    [changeset],
-    args.author,
-  );
+  // Ask LLM for concise PR title + 1-2 line description (preferred)
+  const generated = await generatePrText([changeset], args.app, args.sprint);
+  const prTitle = generated.title;
+  const prDescription = generated.description;
 
   console.log("\n=== PR Title ===");
   console.log(prTitle);

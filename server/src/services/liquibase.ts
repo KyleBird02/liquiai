@@ -1068,9 +1068,9 @@ Do NOT produce warnings for:
 - Duplicate restatements of the same issue.
 
 Severity rules:
-- high: likely deploy failure or irreversible data loss risk.
+- high: likely deploy failure or irreversible data loss risk, and if changeset ordering is wrong, it will cause failure.
 - medium: meaningful risk requiring reviewer attention, but not guaranteed failure.
-- low: minor but concrete operational risk (use sparingly).
+- low: minor but concrete operational risk.
 
 Risk checks to apply:
 - DROP/RENAME/MODIFY type operations affecting existing structures => usually high.

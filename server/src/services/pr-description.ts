@@ -1,6 +1,37 @@
 import { ChangesetDefinition, ChangeReview } from "../types/index";
 
 /**
+ * Build a full text context from changesets including XML and SQL sidecar contents.
+ * This ensures the LLM receives the actual SQL/DDL and seed rows when generating PR text.
+ */
+function buildChangesetFullContext(changesets: ChangesetDefinition[]): string {
+  return changesets
+    .map((cs, index) => {
+      const parts: string[] = [];
+      parts.push(`Changeset ${index + 1}`);
+      parts.push(`ID: ${cs.id}`);
+      parts.push(`Type: ${cs.change.type}`);
+      parts.push(`Target Application: ${cs.targetApplication}`);
+      parts.push(`Target Sprint: ${cs.targetSprint}`);
+      parts.push(`XML Content:\n${cs.xmlContent}`);
+
+      if (cs.sqlFiles && cs.sqlFiles.length > 0) {
+        cs.sqlFiles.forEach((f, fi) => {
+          parts.push(`SQL File ${fi + 1} Path: ${f.path}`);
+          parts.push(`SQL File ${fi + 1} Content:\n${f.content}`);
+        });
+      } else if (cs.sqlFilePath || cs.sqlFileContent) {
+        parts.push(
+          `SQL File Path: ${cs.sqlFilePath || "n/a"}\nSQL File Content:\n${cs.sqlFileContent || ""}`,
+        );
+      }
+
+      return parts.join("\n");
+    })
+    .join("\n\n-----\n\n");
+}
+
+/**
  * Detect the primary table/object affected by a changeset
  */
 export function detectChangesetTarget(cs: ChangesetDefinition): string {
@@ -213,4 +244,150 @@ export function buildPRDescription(
     .join("\n---\n\n");
 
   return sections;
+}
+
+/**
+ * Use LLM to generate a concise PR title and 1-2 line description.
+ * Returns { title, description }.
+ */
+export async function generatePrText(
+  changesets: ChangesetDefinition[],
+  application: string,
+  sprint: string,
+): Promise<{ title: string; description: string }> {
+  const { LLMFactory } = await import("./llm");
+  const provider = LLMFactory.getProvider();
+
+  const systemPrompt = `You are a concise commit/PR title and short description generator for database migrations.
+
+Rules:
+- Return ONLY valid JSON with shape {"title":"...","description":"..."}.
+- Title: one short sentence in imperative past tense (e.g. "Add settlement_date to Users table").
+- Description: 1-2 short sentences (brief summary). Use additional lines only if there are multiple complex changes (more than 1 changeset or EXECUTE_SQL present).
+- Do not include reviewer appendix, warnings, or file lists in the description; those are appended later.`;
+
+  const payload = [
+    `Application: ${application}`,
+    `Sprint: ${sprint}`,
+    `Total changesets: ${changesets.length}`,
+    "Changeset context:",
+    buildChangesetFullContext(changesets),
+  ].join("\n");
+
+  const messages: any = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: payload },
+  ];
+
+  try {
+    const response = await provider.generateCompletion(messages, {
+      temperature: 0.2,
+      maxTokens: 200,
+    });
+
+    const text = response.replace(/^```[a-zA-Z]*\n/, "").replace(/```$/, "").trim();
+    // Try to parse JSON out of the response
+    const jsonStart = text.indexOf("{");
+    const jsonStr = jsonStart >= 0 ? text.slice(jsonStart) : text;
+    const parsed = JSON.parse(jsonStr);
+    const title = String(parsed.title || parsed.prTitle || parsed.name || "Database migration").trim();
+    let description = String(parsed.description || parsed.prDescription || "").trim();
+
+    // Fallback heuristics
+    if (!description) {
+      description = changesets.length === 1
+        ? `Apply changeset ${changesets[0].id}`
+        : `Apply ${changesets.length} Liquibase changesets`;
+    }
+
+    // Keep description short: truncate to two sentences if needed
+    const sentences = description.split(/(?<=[.?!])\s+/).slice(0, 2).join(" ");
+    return { title, description: sentences };
+  } catch (e) {
+    // Graceful fallback
+    const fallbackTitle = buildAutoPrTitle(application, changesets as any);
+    const fallbackDescription = changesets.length === 1
+      ? `Apply changeset ${changesets[0].id}`
+      : `Apply ${changesets.length} Liquibase changesets`;
+    return { title: fallbackTitle, description: fallbackDescription };
+  }
+}
+
+/**
+ * Generate both reviewer appendix (markdown) and concise PR text in a single LLM request.
+ * Returns { appendix: string, prText: { title, description } }
+ */
+export async function generateAppendixAndPrText(
+  changesets: ChangesetDefinition[],
+  application: string,
+  sprint: string,
+): Promise<{ appendix: string; prText: { title: string; description: string } }> {
+  const { LLMFactory } = await import("./llm");
+  const provider = LLMFactory.getProvider();
+
+  const systemPrompt = `You are a senior PostgreSQL/Liquibase migration reviewer and concise PR author.
+
+Return ONLY valid JSON with shape:
+{
+  "appendix": "<markdown string for reviewer appendix (see rules)>",
+  "prText": { "title": "...", "description": "..." }
+}
+
+Rules for appendix (markdown):
+- Include sections in this exact order: ## Migration Scope, ## Tables Changed, ## Table Schemas, ## Relationships, ## Data Changes, ## Changeset Mapping
+- Use markdown tables where useful. Do not include code fences.
+- Be concise and accurate.
+
+Rules for prText:
+- Title: one short sentence in imperative past tense (e.g. \"Add settlement_date to Users table\").
+- Description: 1-2 short sentences. Use multiple sentences only if multiple complex changes exist.
+
+If any detail is unknown, use the word "unknown" explicitly.`;
+
+  const payload = [
+    `Application: ${application}`,
+    `Sprint: ${sprint}`,
+    `Total changesets: ${changesets.length}`,
+    "Changeset context:",
+    buildChangesetFullContext(changesets),
+  ].join("\n");
+
+  const messages: any = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: payload },
+  ];
+
+  try {
+    const response = await provider.generateCompletion(messages, {
+      temperature: 0.2,
+      maxTokens: 1400,
+      enableReasoning: false,
+    });
+
+    const text = response.replace(/^```[a-zA-Z]*\n/, "").replace(/```$/, "").trim();
+    const jsonStart = text.indexOf("{");
+    const jsonStr = jsonStart >= 0 ? text.slice(jsonStart) : text;
+    const parsed = JSON.parse(jsonStr);
+
+    const appendix = String(parsed.appendix || parsed.markdown || "").trim();
+    const pr = parsed.prText || parsed.pr || {};
+    const title = String(pr.title || pr.prTitle || "Database migration").trim();
+    let description = String(pr.description || pr.prDescription || "").trim();
+
+    if (!description) {
+      description = changesets.length === 1
+        ? `Apply changeset ${changesets[0].id}`
+        : `Apply ${changesets.length} Liquibase changesets`;
+    }
+
+    // Truncate to two sentences
+    const sentences = description.split(/(?<=[.?!])\s+/).slice(0, 2).join(" ");
+
+    return { appendix, prText: { title, description: sentences } };
+  } catch (e) {
+    // Fallback: build appendix and prText deterministically
+    const appendix = buildChangesetMapping(changesets);
+    const prFallback = await generatePrText(changesets, application, sprint);
+    return { appendix, prText: prFallback };
+  }
 }
