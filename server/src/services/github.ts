@@ -198,25 +198,34 @@ class GitHubService {
 
       const baseSha = baseRef.data.object.sha;
 
-      // 2. Create a new branch if it doesn't exist
-      const branchExists = await this.branchExists(input.branch);
+      // 2. Create a fresh branch for this request, even if the requested head already exists
+      let branchName = input.branch;
+      const branchExists = await this.branchExists(branchName);
       let branchSha = baseSha;
+
+      if (branchExists) {
+        const suffix = `${Date.now().toString(36)}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        branchName = `${input.branch}-${suffix}`;
+      }
 
       if (!branchExists) {
         await this.octokit.git.createRef({
           owner: this.owner,
           repo: this.repo,
-          ref: `refs/heads/${input.branch}`,
+          ref: `refs/heads/${branchName}`,
           sha: baseSha,
         });
       } else {
-        // If it exists, get the latest SHA for that branch
-        const branchRef = await this.octokit.git.getRef({
+        // Start from main on the new branch name so we never reuse an existing head.
+        branchSha = baseSha;
+        await this.octokit.git.createRef({
           owner: this.owner,
           repo: this.repo,
-          ref: `heads/${input.branch}`,
+          ref: `refs/heads/${branchName}`,
+          sha: baseSha,
         });
-        branchSha = branchRef.data.object.sha;
       }
 
       // 3. Create or update files
@@ -267,7 +276,7 @@ class GitHubService {
         await this.octokit.git.updateRef({
           owner: this.owner,
           repo: this.repo,
-          ref: `heads/${input.branch}`,
+          ref: `heads/${branchName}`,
           sha: commitResponse.data.sha,
         });
       }
@@ -279,7 +288,7 @@ class GitHubService {
           repo: this.repo,
           title: input.title,
           body: input.description,
-          head: input.branch,
+          head: branchName,
           base: "main",
         });
 
@@ -296,7 +305,7 @@ class GitHubService {
           const existingPrs = await this.octokit.pulls.list({
             owner: this.owner,
             repo: this.repo,
-            head: `${this.owner}:${input.branch}`,
+            head: `${this.owner}:${branchName}`,
             state: "open",
           });
 

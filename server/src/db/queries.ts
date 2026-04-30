@@ -1,4 +1,4 @@
-import { connectionManager } from "./connection";
+import { connectionManager } from "./connection.js";
 import {
   SchemaSnapshot,
   TableDefinition,

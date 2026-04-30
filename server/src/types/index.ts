@@ -130,6 +130,7 @@ export interface CreateTablePayload {
   columns: ColumnDefinition[];
   primaryKey?: string[];
   foreignKeys?: ForeignKeyDefinition[];
+  seedData?: Array<Record<string, string | number | boolean | null>>;
 }
 
 export interface AlterTablePayload {

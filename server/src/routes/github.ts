@@ -5,6 +5,13 @@ import { LLMFactory } from "../services/llm";
 import { formatWarningsForPR } from "../services/warnings";
 import { liquibaseGenerator } from "../services/liquibase";
 import {
+  buildAutoPrTitle,
+  buildChangesetMapping,
+  formatChangesetWarnings,
+  buildPRDescription,
+  detectChangesetTarget,
+} from "../services/pr-description";
+import {
   ChangesetBatch,
   ChangesetDefinition,
   GitHubFileChange,
@@ -16,50 +23,9 @@ const stripBoldMarkdown = (input: string): string => {
   return input.replace(/\*\*(.*?)\*\*/g, "$1").replace(/__(.*?)__/g, "$1");
 };
 
-const detectChangesetTarget = (cs: ChangesetDefinition): string => {
-  const payload: any = cs.change.payload || {};
-
-  if (payload.tableName) {
-    return `${payload.schema || "public"}.${payload.tableName}`;
-  }
-
-  const xmlMatch = cs.xmlContent.match(
-    /<(?:createTable|addColumn|dropTable|dropColumn|createIndex|dropIndex)\s+[^>]*tableName="([^"]+)"/i,
-  );
-  if (xmlMatch?.[1]) {
-    return `public.${xmlMatch[1]}`;
-  }
-
-  return "various";
-};
-
-const buildAutoPrTitle = (
-  application: string,
-  changesets: ChangesetDefinition[],
-): string => {
-  const targets = Array.from(
-    new Set(
-      changesets
-        .map((cs) => detectChangesetTarget(cs))
-        .filter((t) => t !== "various"),
-    ),
-  );
-
-  if (targets.length === 0) {
-    return `Database migration for ${application}`;
-  }
-
-  if (targets.length === 1) {
-    return `Database migration: update ${targets[0]}`;
-  }
-
-  const primary = targets.slice(0, 2).join(", ");
-  const remaining = targets.length - 2;
-  return remaining > 0
-    ? `Database migration: update ${primary} + ${remaining} more`
-    : `Database migration: update ${primary}`;
-};
-
+/**
+ * Build a unique digest of changesets for caching purposes
+ */
 const buildChangesetDigest = (changesets: ChangesetDefinition[]): string => {
   return changesets
     .map((cs) => {
@@ -78,6 +44,8 @@ const buildChangesetDigest = (changesets: ChangesetDefinition[]): string => {
     })
     .join("###");
 };
+
+
 
 const buildChangesetContext = (changesets: ChangesetDefinition[]): string => {
   return changesets

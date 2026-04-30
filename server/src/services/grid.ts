@@ -20,8 +20,8 @@ import {
   deleteGridAttribute,
   getColumnUsageForWidthSuggestion,
   getSampleColumnData,
-} from "../db/queries";
-import { connectionManager } from "../db/connection";
+} from "../db/queries.js";
+import { connectionManager } from "../db/connection.js";
 
 class GridService {
   /**

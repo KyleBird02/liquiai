@@ -4,7 +4,7 @@ import {
   AlterTablePayload,
   DropTablePayload,
 } from "../types/index";
-import { LLMFactory, LLMMessage } from "./llm";
+import { LLMFactory, LLMMessage } from "./llm.js";
 
 class LLMSqlGenerator {
   private sqlCache = new Map<string, string>();

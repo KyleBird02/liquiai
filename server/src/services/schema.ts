@@ -2,7 +2,7 @@ import { Client } from "pg";
 import {
   introspectSchema,
   introspectSchemaWithConnection,
-} from "../db/queries";
+} from "../db/queries.js";
 import { SchemaSnapshot, TableDefinition } from "../types/index";
 
 class SchemaService {
