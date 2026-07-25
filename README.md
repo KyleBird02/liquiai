@@ -8,6 +8,11 @@ LiquiAI is a full-stack migration engineering platform for PostgreSQL teams usin
 
 The platform converts developer intent (natural language or UI actions) into reviewable Liquibase changesets, validates them, and prepares GitHub pull requests with supporting SQL/CSV artifacts.
 
+## Product Demo
+
+[![Video Title](https://img.youtube.com/vi/qFR9xfk9wRg/maxresdefault.jpg)](https://www.youtube.com/watch?v=qFR9xfk9wRg)   
+
+
 ## Core Capabilities
 
 - **Schema introspection and editing**
