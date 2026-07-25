@@ -69,7 +69,7 @@ export class OpenRouterLLMProvider implements LLMProvider {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.apiKey}`,
+          Authorization: "Bearer " + (process.env.OPENROUTER_API_KEY || this.apiKey),
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestBody),
